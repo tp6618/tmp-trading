@@ -62,7 +62,7 @@ def get_exchange_stocks():
         "MARUTI - Maruti Suzuki India Ltd": "MARUTI.NS",
         "SUNPHARMA - Sun Pharmaceutical Industries Ltd": "SUNPHARMA.NS",
         "TITAN - Titan Company Ltd": "TITAN.NS",
-        "WIPRO - Wipro Ltd": "WIPRO.NS",
+        "WIPRO - WIPRO.NS": "WIPRO.NS",
         "ULTRACEMCO - UltraTech Cement Ltd": "ULTRACEMCO.NS",
         "TATAMOTORS - Tata Motors Ltd": "TATAMOTORS.NS",
         "TATASTEEL - Tata Steel Ltd": "TATASTEEL.NS",
@@ -131,7 +131,15 @@ est_platform_fee = max(10.00, turnover * 0.00005)
 est_total_fees = round(est_regulatory + est_platform_fee, 2)
 
 est_required = (turnover * margin_mult) + (est_total_fees if txn_type == "BUY" else 0.0)
-st.sidebar.caption(f"Margin: **₹{est_required - est_total_fees:,.2f}** | Reg. Charges: **₹{est_regulatory:,.2f}** | Platform Fee: **₹{est_platform_fee:,.2f}**")
+
+# Check against current available cash for immediate sidebar warning
+account_summary = get_account_summary()
+available_cash = account_summary['cash_balance']
+
+if txn_type == "BUY" and est_required > available_cash:
+    st.sidebar.error(f"⚠️ Insufficient Margin! Required: ₹{est_required:,.2f} > Available: ₹{available_cash:,.2f}")
+else:
+    st.sidebar.caption(f"Required Margin: **₹{est_required:,.2f}** (Fees incl.)")
 
 if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=True):
     success, msg = place_order(selected_option, txn_type, product, qty, execution_price, sl_price, tp_price)
@@ -148,7 +156,7 @@ if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Professional Equity paper trading environment with margin validation, platform fees, and real-time streaming.")
+st.markdown("Professional Equity paper trading environment with strict margin enforcement and live streaming.")
 
 @st.fragment(run_every=2)
 def live_dashboard_fragment():
