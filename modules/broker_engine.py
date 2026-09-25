@@ -49,31 +49,29 @@ def get_account_summary():
         }
     return {"cash_balance": 1000000.0, "utilized_margin": 0.0, "total_charges_paid": 0.0, "total_platform_fees": 0.0}
 
+def update_account_capital(new_cash_balance):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE account SET cash_balance = ? WHERE id = 1", (new_cash_balance,))
+    conn.commit()
+    conn.close()
+    return True, f"Account cash balance successfully updated to ₹{new_cash_balance:,.2f}!"
+
 def calculate_standard_charges(turnover, txn_type, product):
     is_delivery = "Delivery" in product
     
-    # Brokerage: Flat ₹20 or flat percentage
     brokerage = min(20.0, turnover * 0.0003)
     
-    # STT / CTT
     if is_delivery:
         stt = turnover * 0.001
     else:
         stt = turnover * 0.00025 if txn_type == "SELL" else 0.0
         
-    # Exchange Transaction Charges
     exchange_txn = turnover * 0.0000325
-    
-    # GST (18% on brokerage + exchange charges)
     gst = (brokerage + exchange_txn) * 0.18
-    
-    # SEBI Turnover Charges
     sebi_charges = turnover * 0.000001
-    
-    # Stamp Duty
     stamp_duty = turnover * 0.00015 if (is_delivery and txn_type == "BUY") else (turnover * 0.00003 if txn_type == "BUY" else 0.0)
     
-    # Platform Fee: ₹10 or 0.005% of turnover, whichever is higher
     calculated_pct_fee = turnover * 0.00005
     platform_fee = max(10.00, calculated_pct_fee)
     
@@ -106,7 +104,6 @@ def place_order(symbol, txn_type, product, quantity, price, sl_price=0.0, tp_pri
     
     required_margin = (turnover * margin_multiplier) + (total_deduction if txn_type == "BUY" else 0.0)
     
-    # Strict Margin Validation Check
     if txn_type == "BUY" and cash < required_margin:
         conn.close()
         return False, f"Insufficient funds! Required margin + fees: ₹{required_margin:,.2f} (Available Cash: ₹{cash:,.2f})"
