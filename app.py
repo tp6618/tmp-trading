@@ -123,7 +123,16 @@ else:
         
     st.sidebar.markdown(f"**Spot LTP:** `₹{spot_price:,.2f}`")
     
-    selected_option = st.sidebar.text_input("Selected Contract", value=f"{fo_index} 24500 CE" if fo_index == "NIFTY 50" else f"{fo_index} 51000 CE")
+    # Generate dynamic strike contracts list for selection
+    strike_step = 50 if fo_index == "NIFTY 50" else 100
+    atm_strike = round(spot_price / strike_step) * strike_step
+    contract_list = []
+    for i in range(-4, 5):
+        stk = atm_strike + (i * strike_step)
+        contract_list.append(f"{fo_index} {stk} CE")
+        contract_list.append(f"{fo_index} {stk} PE")
+        
+    selected_option = st.sidebar.selectbox("Select Contract", contract_list)
     ltp = st.sidebar.number_input("Option Premium (LTP)", min_value=0.05, value=150.0, step=0.5)
     
     txn_type = st.sidebar.radio("Action Type", ["BUY", "SELL"], horizontal=True)
@@ -272,7 +281,6 @@ def live_dashboard_fragment():
         
         st.markdown("---")
         
-        # Header Row for Option Chain
         h1, h2, h3, h4, h5 = st.columns([2, 2, 2, 2, 2])
         h1.markdown("**CALL ACTIONS (CE)**")
         h2.markdown("**CALL LTP**")
@@ -281,7 +289,6 @@ def live_dashboard_fragment():
         h5.markdown("**PUT ACTIONS (PE)**")
         st.markdown("<hr style='margin: 0px 0px 10px 0px;'>", unsafe_allow_html=True)
         
-        # Dynamic Strike Rows with Buy and Sell Buttons
         for i in range(-4, 5):
             strike = atm_strike + (i * strike_step)
             call_ltp = max(5.0, round((spot - strike) * 0.5 + 150 - (abs(i) * 15), 2)) if strike <= spot else max(5.0, round(150 - (i * 20), 2))
@@ -296,12 +303,18 @@ def live_dashboard_fragment():
                 b_ce, s_ce = st.columns(2)
                 with b_ce:
                     if st.button("B CE", key=f"b_ce_{strike}", help=f"Buy {ce_symbol}"):
-                        place_order(ce_symbol, "BUY", "F&O Intraday (MIS)", lot_size, call_ltp)
-                        st.success(f"Bought {ce_symbol}")
+                        success, msg = place_order(ce_symbol, "BUY", "F&O Intraday (MIS)", lot_size, call_ltp)
+                        if success:
+                            st.success(f"Bought {ce_symbol}")
+                        else:
+                            st.error(msg)
                 with s_ce:
                     if st.button("S CE", key=f"s_ce_{strike}", help=f"Sell {ce_symbol}"):
-                        place_order(ce_symbol, "SELL", "F&O Intraday (MIS)", lot_size, call_ltp)
-                        st.success(f"Sold {ce_symbol}")
+                        success, msg = place_order(ce_symbol, "SELL", "F&O Intraday (MIS)", lot_size, call_ltp)
+                        if success:
+                            st.success(f"Sold {ce_symbol}")
+                        else:
+                            st.error(msg)
             with c2:
                 st.markdown(f"₹{call_ltp}")
             with c3:
@@ -313,12 +326,18 @@ def live_dashboard_fragment():
                 b_pe, s_pe = st.columns(2)
                 with b_pe:
                     if st.button("B PE", key=f"b_pe_{strike}", help=f"Buy {pe_symbol}"):
-                        place_order(pe_symbol, "BUY", "F&O Intraday (MIS)", lot_size, put_ltp)
-                        st.success(f"Bought {pe_symbol}")
+                        success, msg = place_order(pe_symbol, "BUY", "F&O Intraday (MIS)", lot_size, put_ltp)
+                        if success:
+                            st.success(f"Bought {pe_symbol}")
+                        else:
+                            st.error(msg)
                 with s_pe:
-                    if st.button("S_PE", key=f"s_pe_{strike}", help=f"Sell {pe_symbol}"):
-                        place_order(pe_symbol, "SELL", "F&O Intraday (MIS)", lot_size, put_ltp)
-                        st.success(f"Sold {pe_symbol}")
+                    if st.button("S PE", key=f"s_pe_{strike}", help=f"Sell {pe_symbol}"):
+                        success, msg = place_order(pe_symbol, "SELL", "F&O Intraday (MIS)", lot_size, put_ltp)
+                        if success:
+                            st.success(f"Sold {pe_symbol}")
+                        else:
+                            st.error(msg)
                         
             st.markdown("<hr style='margin: 4px 0px; border-color: #1e222d;'>", unsafe_allow_html=True)
 
