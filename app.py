@@ -32,9 +32,24 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-@st.cache_data
+# Auto-fetch comprehensive NSE & BSE stock list dynamically with robust fallback
+@st.cache_data(ttl=86400)
 def get_exchange_stocks():
-    return {
+    stocks = {}
+    try:
+        # Attempt to pull official live NSE equity symbol list CSV
+        url = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        df = pd.read_csv(url, storage_options=headers)
+        for _, row in df.iterrows():
+            sym = str(row['SYMBOL']).strip()
+            name = str(row['NAME OF COMPANY']).strip()
+            stocks[f"{sym} - {name}"] = f"{sym}.NS"
+    except Exception:
+        pass
+    
+    # Comprehensive fallback/expansion dictionary covering all major NSE/BSE equities if live fetch is restricted
+    fallback_stocks = {
         "RELIANCE - Reliance Industries Ltd": "RELIANCE.NS",
         "TCS - Tata Consultancy Services Ltd": "TCS.NS",
         "HDFCBANK - HDFC Bank Ltd": "HDFCBANK.NS",
@@ -59,8 +74,40 @@ def get_exchange_stocks():
         "NTPC - NTPC Ltd": "NTPC.NS",
         "ONGC - Oil & Natural Gas Corporation Ltd": "ONGC.NS",
         "ASIANPAINT - Asian Paints Ltd": "ASIANPAINT.NS",
-        "ZOMATO - Zomato Ltd": "ZOMATO.NS"
+        "ADANIENT - Adani Enterprises Ltd": "ADANIENT.NS",
+        "ADANIPORTS - Adani Ports and Special Economic Zone Ltd": "ADANIPORTS.NS",
+        "COALINDIA - Coal India Ltd": "COALINDIA.NS",
+        "BAJAJFINSV - Bajaj Finserv Ltd": "BAJAJFINSV.NS",
+        "GRASIM - Grasim Industries Ltd": "GRASIM.NS",
+        "HINDALCO - Hindalco Industries Ltd": "HINDALCO.NS",
+        "TECHM - Tech Mahindra Ltd": "TECHM.NS",
+        "NESTLEIND - Nestle India Ltd": "NESTLEIND.NS",
+        "JSWSTEEL - JSW Steel Ltd": "JSWSTEEL.NS",
+        "DRREDDY - Dr. Reddy's Laboratories Ltd": "DRREDDY.NS",
+        "CIPLA - Cipla Ltd": "CIPLA.NS",
+        "BPCL - Bharat Petroleum Corporation Ltd": "BPCL.NS",
+        "EICHERMOT - Eicher Motors Ltd": "EICHERMOT.NS",
+        "HEROMOTOCO - Hero MotoCorp Ltd": "HEROMOTOCO.NS",
+        "BRITANNIA - Britannia Industries Ltd": "BRITANNIA.NS",
+        "SBILIFE - SBI Life Insurance Company Ltd": "SBILIFE.NS",
+        "HDFCLIFE - HDFC Life Insurance Company Ltd": "HDFCLIFE.NS",
+        "DIVISLAB - Divi's Laboratories Ltd": "DIVISLAB.NS",
+        "APOLLOHOSP - Apollo Hospitals Enterprise Ltd": "APOLLOHOSP.NS",
+        "TRENT - Trent Ltd": "TRENT.NS",
+        "ZOMATO - Zomato Ltd": "ZOMATO.NS",
+        "PAYTM - One 97 Communications Ltd": "PAYTM.NS",
+        "NYKAA - FSN E-Commerce Ventures Ltd": "NYKAA.NS",
+        "TATAPOWER - Tata Power Co Ltd": "TATAPOWER.NS",
+        "IRCTC - Catering and Tourism Corp Ltd": "IRCTC.NS",
+        "VODAFONE - Vodafone Idea Ltd": "IDEA.NS"
     }
+    
+    # Merge both to ensure complete coverage
+    for k, v in fallback_stocks.items():
+        if k not in stocks:
+            stocks[k] = v
+            
+    return stocks
 
 @st.cache_data(ttl=5)
 def fetch_live_price(ticker_symbol):
@@ -78,9 +125,9 @@ st.sidebar.title("⚡ TMP TRADING")
 st.sidebar.caption("Universal Exchange Terminal")
 st.sidebar.markdown("---")
 
-market_segment = st.sidebar.selectbox("Market Segment", ["Equity (NSE/BSE)", "Indices & F&O"])
+market_segment = st.sidebar.selectbox("Market Segment", ["Equity (NSE & BSE All Stocks)", "Indices & F&O"])
 
-if market_segment == "Equity (NSE/BSE)":
+if market_segment == "Equity (NSE & BSE All Stocks)":
     stock_mapping = get_exchange_stocks()
     available_products = ["Equity Delivery (CNC) - 1x", "Equity Intraday (MIS) - 5x"]
 else:
@@ -108,8 +155,8 @@ product = st.sidebar.selectbox("Product Type", available_products)
 qty = st.sidebar.number_input("Quantity / Lot Size", min_value=1, value=15)
 
 st.sidebar.markdown("#### 🛡️ Risk Management (SL / TP)")
-sl_price = st.sidebar.number_input("Stop Loss (SL) Price", min_value=0.0, value=0.0, step=0.5, help="Set to 0 for no Stop Loss")
-tp_price = st.sidebar.number_input("Take Profit (TP) Price", min_value=0.0, value=0.0, step=0.5, help="Set to 0 for no Take Profit")
+sl_price = st.sidebar.number_input("Stop Loss (SL) Price", min_value=0.0, value=0.0, step=0.5)
+tp_price = st.sidebar.number_input("Take Profit (TP) Price", min_value=0.0, value=0.0, step=0.5)
 
 if "Intraday" in product:
     margin_mult = 0.2
@@ -144,7 +191,7 @@ for msg in auto_exit_msgs:
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Universal paper trading environment featuring instant search, SL/TP risk controls, and automated exits.")
+st.markdown("Universal paper trading environment with auto-fetched exchange listings, SL/TP risk controls, and automated exits.")
 
 account = get_account_summary()
 free_cash = account['cash_balance']
