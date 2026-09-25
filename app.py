@@ -11,12 +11,24 @@ st.set_page_config(
     layout="wide"
 )
 
-# Professional Dark Theme UI Styling
+# Professional Dark Theme & Centered UI Styling
 st.markdown("""
     <style>
     .main {background-color: #0e1117;}
-    .stMetric {background-color: #1e222d; padding: 12px; border-radius: 6px; border: 1px solid #2d3748;}
-    h1, h2, h3 {color: #f0f2f6;}
+    .stMetric {
+        background-color: #1e222d; 
+        padding: 12px; 
+        border-radius: 6px; 
+        border: 1px solid #2d3748;
+        text-align: center;
+    }
+    h1, h2, h3 {
+        text-align: center;
+        color: #f0f2f6;
+    }
+    p, .stMarkdown {
+        text-align: center;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -44,17 +56,41 @@ if market_segment == "Equity Cash":
     stock_mapping = {
         "RELIANCE": "RELIANCE.NS",
         "TCS": "TCS.NS",
-        "INFY": "INFY.NS",
         "HDFCBANK": "HDFCBANK.NS",
-        "TATAMOTORS": "TATAMOTORS.NS"
+        "ICICIBANK": "ICICIBANK.NS",
+        "INFY": "INFY.NS",
+        "ITC": "ITC.NS",
+        "SBIN": "SBIN.NS",
+        "LTIM": "LTIM.NS",
+        "BHARTIARTL": "BHARTIARTL.NS",
+        "KOTAKBANK": "KOTAKBANK.NS",
+        "LT": "LT.NS",
+        "AXISBANK": "AXISBANK.NS",
+        "HINDUNILVR": "HINDUNILVR.NS",
+        "BAJFINANCE": "BAJFINANCE.NS",
+        "ASIANPAINT": "ASIANPAINT.NS",
+        "MARUTI": "MARUTI.NS",
+        "SUNPHARMA": "SUNPHARMA.NS",
+        "TITAN": "TITAN.NS",
+        "WIPRO": "WIPRO.NS",
+        "ULTRACEMCO": "ULTRACEMCO.NS",
+        "TATAMOTORS": "TATAMOTORS.NS",
+        "TATASTEEL": "TATASTEEL.NS",
+        "POWERGRID": "POWERGRID.NS",
+        "NTPC": "NTPC.NS",
+        "ONGC": "ONGC.NS"
     }
     available_products = ["Equity Delivery (CNC) - 1x", "Equity Intraday (MIS) - 5x"]
 else:
     stock_mapping = {
         "NIFTY 50 Index": "^NSEI",
         "BANK NIFTY Index": "^NSEBANK",
-        "NIFTY 24000 CE": "^NSEI",
-        "BANKNIFTY 51000 PE": "^NSEBANK"
+        "FINNIFTY": "NIFTY_FIN_SERVICE.NS",
+        "NIFTY MIDCAP 50": "^NSEMDCP50",
+        "RELIANCE FNO": "RELIANCE.NS",
+        "TCS FNO": "TCS.NS",
+        "HDFCBANK FNO": "HDFCBANK.NS",
+        "SBIN FNO": "SBIN.NS"
     }
     available_products = ["F&O Intraday (MIS)", "F&O Carry Forward (NRML)"]
 
@@ -94,8 +130,8 @@ if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=T
     else:
         st.sidebar.error(msg)
 
-# Main Dashboard Header
-st.title("TMP TRADING Terminal")
+# Main Dashboard Centered Header
+st.title("⚡ TMP TRADING Terminal")
 st.markdown("Live multi-segment simulated environment supporting Equity Delivery, Intraday, and F&O.")
 
 # Fetch Account Balances
@@ -139,7 +175,8 @@ if not positions_df.empty:
 
 total_portfolio_value = free_cash + utilized + total_unrealized_pnl
 
-# Top Financial Metrics Bar
+# Top Financial Metrics Bar (Centered layout)
+st.markdown("### 📊 Account Performance Metrics")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Available Cash", f"₹{free_cash:,.2f}")
 col2.metric("Utilized Margin", f"₹{utilized:,.2f}")
@@ -148,7 +185,7 @@ col4.metric("Unrealized P&L", f"₹{total_unrealized_pnl:,.2f}", delta=f"₹{tot
 
 st.markdown("---")
 
-# Portfolio Management Tabs
+# Portfolio Management Centered Tabs
 tab1, tab2, tab3 = st.tabs(["📊 Active Positions", "📑 Order Book", "💰 Ledger Summary"])
 
 with tab1:
