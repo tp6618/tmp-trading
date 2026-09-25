@@ -79,6 +79,278 @@ def get_exchange_stocks():
             
     return stocks
 
+@st.cache_data(ttl=2)
+def fetch_live_price(ticker_symbol):
+    try:
+        data = yf.Ticker(ticker_symbol)
+        todays_data = data.history(period='1d')
+        if not todays_data.empty:
+            return float(todays_data['Close'].iloc[-1])
+    except Exception:
+        pass
+    return 0.00
+
+# Sidebar Order Ticket Panel
+st.sidebar.title("⚡ TMP TRADING")
+st.sidebar.caption("Universal Exchange Terminal")
+st.sidebar.markdown("---")
+
+market_segment = st.sidebar.selectbox("Market Segment", ["Equity (NSE & BSE All Stocks)", "Futures & Options (F&O)"])
+
+if market_segment == "Equity (NSE & BSE All Stocks)":
+    stock_mapping = get_exchange_stocks()
+    available_products = ["Equity Delivery (CNC) - 1x", "Equity Intraday (MIS) - 5x"]
+    selected_option = st.sidebar.selectbox("🔍 Search & Select Stock", list(stock_mapping.keys()))
+    ticker_code = stock_mapping[selected_option]
+    
+    ltp = fetch_live_price(ticker_code)
+    if ltp == 0.00:
+        ltp = 1000.00
+    st.sidebar.markdown(f"### Live LTP: `₹{ltp:,.2f}`")
+
+    txn_type = st.sidebar.radio("Action Type", ["BUY", "SELL"], horizontal=True)
+    product = st.sidebar.selectbox("Product Type", available_products)
+    qty = st.sidebar.number_input("Quantity / Lot Size", min_value=1, value=15)
+
+else:
+    st.sidebar.markdown("### 📊 F&O Option Chain")
+    fo_index = st.sidebar.selectbox("Select Index", ["NIFTY 50", "BANK NIFTY"])
+    index_ticker = "^NSEI" if fo_index == "NIFTY 50" else "^NSEBANK"
+    
+    spot_price = fetch_live_price(index_ticker)
+    if spot_price == 0.0:
+        spot_price = 24000.0 if fo_index == "NIFTY 50" else 51000.0
+        
+    st.sidebar.markdown(f"**Spot LTP:** `₹{spot_price:,.2f}`")
+    
+    # Quick Option picker from sidebar or use Option Chain tab
+    selected_option = st.sidebar.text_input("Selected Contract", value=f"{fo_index} 24500 CE" if fo_index == "NIFTY 50" else f"{fo_index} 51000 CE")
+    ltp = st.sidebar.number_input("Option Premium (LTP)", min_value=0.05, value=150.0, step=0.5)
+    
+    txn_type = st.sidebar.radio("Action Type", ["BUY", "SELL"], horizontal=True)
+    product = st.sidebar.selectbox("Product Type", ["F&O Intraday (MIS)", "F&O Carry Forward (NRML)"])
+    qty = st.sidebar.number_input("Lot Size (Qty)", min_value=1, value=25 if fo_index == "NIFTY 50" else 15)
+
+st.sidebar.markdown("#### 🛡️ Risk Management (SL / TP)")
+sl_price = st.sidebar.number_input("Stop Loss (SL) Price", min_value=0.0, value=0.0, step=0.5)
+tp_price = st.sidebar.number_input("Take Profit (TP) Price", min_value=0.0, value=0.0, step=0.5)
+
+if "Intraday" in product:
+    margin_mult = 0.2
+elif "Delivery" in product:
+    margin_mult = 1.0
+else:
+    margin_mult = 0.25
+
+est_required = (ltp * qty) * margin_mult
+st.sidebar.caption(f"Estimated Margin Needed: **₹{est_required:,.2f}**")
+
+if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=True):
+    success, msg = place_order(selected_option, txn_type, product, qty, ltp, sl_price, tp_price)
+    if success:
+        st.sidebar.success(msg)
+    else:
+        st.sidebar.error(msg)
+
+st.sidebar.markdown("---")
+if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
+    reset_account()
+    st.sidebar.success("Account reset successfully!")
+    st.rerun()
+
+# Main Dashboard Centered Header
+st.title("⚡ TMP TRADING Terminal")
+st.markdown("Universal paper trading environment with Live Option Chain, SL/TP controls, and real-time streaming.")
+
+@st.fragment(run_every=2)
+def live_dashboard_fragment():
+    auto_exit_msgs = check_auto_exits(fetch_live_price, stock_mapping if market_segment == "Equity (NSE & BSE All Stocks)" else {"NIFTY 50 Index": "^NSEI", "BANK NIFTY Index": "^NSEBANK"})
+    for msg in auto_exit_msgs:
+        st.warning(msg)
+
+    account = get_account_summary()
+    free_cash = account['cash_balance']
+    utilized = account['utilized_margin']
+
+    positions_df = get_positions()
+    total_unrealized_pnl = 0.0
+
+    if not positions_df.empty:
+        live_ltps = []
+        pnl_list = []
+        pnl_pct_list = []
+        
+        for idx, row in positions_df.iterrows():
+            sym_name = row['symbol']
+            sym_code = stock_mapping.get(sym_name, "^NSEI") if 'stock_mapping' in locals() else "^NSEI"
+                
+            current_ltp = fetch_live_price(sym_code)
+            if current_ltp == 0.0:
+                current_ltp = row['avg_price']
+                
+            live_ltps.append(current_ltp)
+            
+            pnl = (current_ltp - row['avg_price']) * row['quantity']
+            pnl_pct = ((current_ltp - row['avg_price']) / row['avg_price']) * 100 if row['avg_price'] > 0 else 0.0
+            
+            pnl_list.append(round(pnl, 2))
+            pnl_pct_list.append(f"{pnl_pct:.2f}%")
+            total_unrealized_pnl += pnl
+
+        positions_df['LTP'] = live_ltps
+        positions_df['Unrealized P&L'] = pnl_list
+        positions_df['P&L (%)'] = pnl_pct_list
+
+    total_portfolio_value = free_cash + utilized + total_unrealized_pnl
+
+    st.markdown("### 📊 Account Performance Metrics")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Available Cash", f"₹{free_cash:,.2f}")
+    col2.metric("Utilized Margin", f"₹{utilized:,.2f}")
+    col3.metric("Total Net Worth", f"₹{total_portfolio_value:,.2f}")
+    col4.metric("Unrealized P&L", f"₹{total_unrealized_pnl:,.2f}", delta=f"₹{total_unrealized_pnl:,.2f}")
+
+    st.markdown("---")
+
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Active Positions", "📈 Option Chain (F&O)", "📑 Order Book", "💰 Ledger Summary"])
+
+    with tab1:
+        st.subheader("Open Positions, SL/TP & Real-Time P&L")
+        if not positions_df.empty:
+            st.dataframe(positions_df, use_container_width=True)
+            
+            st.markdown("### ⚙️ Manage SL / TP & Manual Exit")
+            col_sym, col_prod, col_sl, col_tp, col_btn = st.columns([2, 2, 1, 1, 1])
+            with col_sym:
+                mod_symbol = st.selectbox("Position Symbol", positions_df['symbol'].tolist(), key="mod_sym")
+            with col_prod:
+                mod_product = st.selectbox("Product Type", positions_df[positions_df['symbol'] == mod_symbol]['product'].tolist(), key="mod_prod")
+            
+            current_pos_row = positions_df[(positions_df['symbol'] == mod_symbol) & (positions_df['product'] == mod_product)]
+            default_sl = float(current_pos_row['sl_price'].values[0]) if not current_pos_row.empty else 0.0
+            default_tp = float(current_pos_row['tp_price'].values[0]) if not current_pos_row.empty else 0.0
+            
+            with col_sl:
+                new_sl = st.number_input("New SL", value=default_sl, step=0.5, key="new_sl")
+            with col_tp:
+                new_tp = st.number_input("New TP", value=default_tp, step=0.5, key="new_tp")
+            with col_btn:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("Update SL/TP", type="secondary"):
+                    update_sl_tp(mod_symbol, mod_product, new_sl, new_tp)
+                    st.success("SL/TP Updated!")
+                    st.rerun()
+
+            st.markdown("---")
+            if st.button("❌ Square Off Position", type="primary"):
+                so_code = "^NSEI"
+                exit_price = fetch_live_price(so_code)
+                if exit_price == 0.0:
+                    exit_price = 1000.0
+                
+                success, msg = square_off_position(mod_symbol, mod_product, exit_price)
+                if success:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+        else:
+            st.info("No open positions currently active.")
+
+    with tab2:
+        st.subheader("📈 Live Options Chain (Calls & Puts)")
+        oc_index = st.selectbox("Select Underlying Index for Option Chain", ["NIFTY 50", "BANK NIFTY"], key="oc_idx")
+        oc_ticker = "^NSEI" if oc_index == "NIFTY 50" else "^NSEBANK"
+        spot = fetch_live_price(oc_ticker)
+        if spot == 0.0:
+            spot = 24000.0 if oc_index == "NIFTY 50" else 51000.0
+            
+        st.info(f"Current Live Spot Price for **{oc_index}**: **₹{spot:,.2f}**")
+        
+        # Generate clean option chain rows around ATM strike
+        strike_step = 50 if oc_index == "NIFTY 50" else 100
+        atm_strike = round(spot / strike_step) * strike_step
+        
+        chain_data = []
+        for i in range(-5, 6):
+            strike = atm_strike + (i * strike_step)
+            # Simulated real-time premium calculation based on distance from spot
+            call_ltp = max(5.0, round((spot - strike) * 0.5 + 150 - (abs(i) * 15), 2)) if strike <= spot else max(5.0, round(150 - (i * 20), 2))
+            put_ltp = max(5.0, round((strike - spot) * 0.5 + 150 + (abs(i) * 15), 2)) if strike >= spot else max(5.0, round(150 + (i * 20), 2))
+            
+            chain_data.append({
+                "CALL OI": f"{abs(i)*1245 + 5000} contracts",
+                "CALL LTP (CE)": call_ltp,
+                "STRIKE PRICE": strike,
+                "PUT LTP (PE)": put_ltp,
+                "PUT OI": f"{abs(i)*1120 + 4800} contracts"
+            })
+            
+        oc_df = pd.DataFrame(chain_data)
+        st.dataframe(oc_df, use_container_width=True)
+        st.caption("💡 Tip: Select your preferred Strike and Call (CE) or Put (PE) in the sidebar order ticket to execute F&O paper trades instantly.")
+
+    with tab3:
+        st.subheader("Complete Order Book History")
+        orders_df = get_orders()
+        if not orders_df.empty:
+            st.dataframe(orders_df, use_container_width=True)
+        else:
+            st.info("No orders placed yet.")
+
+    with tab4:
+        st.subheader("Ledger Details")
+        st.json({
+            "Broker Name": "TMP TRADING",
+            "Available Cash Balance": f"₹{free_cash:,.2f}",
+            "Blocked Exposure Margin": f"₹{utilized:,.2f}"
+        })
+
+live_dashboard_fragment()    try:
+        url = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        df = pd.read_csv(url, storage_options=headers)
+        for _, row in df.iterrows():
+            sym = str(row['SYMBOL']).strip()
+            name = str(row['NAME OF COMPANY']).strip()
+            stocks[f"{sym} - {name}"] = f"{sym}.NS"
+    except Exception:
+        pass
+    
+    fallback_stocks = {
+        "RELIANCE - Reliance Industries Ltd": "RELIANCE.NS",
+        "TCS - Tata Consultancy Services Ltd": "TCS.NS",
+        "HDFCBANK - HDFC Bank Ltd": "HDFCBANK.NS",
+        "ICICIBANK - ICICI Bank Ltd": "ICICIBANK.NS",
+        "INFY - Infosys Ltd": "INFY.NS",
+        "ITC - ITC Ltd": "ITC.NS",
+        "SBIN - State Bank of India": "SBIN.NS",
+        "BHARTIARTL - Bharti Airtel Ltd": "BHARTIARTL.NS",
+        "KOTAKBANK - Kotak Mahindra Bank Ltd": "KOTAKBANK.NS",
+        "LT - Larsen & Toubro Ltd": "LT.NS",
+        "AXISBANK - Axis Bank Ltd": "AXISBANK.NS",
+        "HINDUNILVR - Hindustan Unilever Ltd": "HINDUNILVR.NS",
+        "BAJFINANCE - Bajaj Finance Ltd": "BAJFINANCE.NS",
+        "MARUTI - Maruti Suzuki India Ltd": "MARUTI.NS",
+        "SUNPHARMA - Sun Pharmaceutical Industries Ltd": "SUNPHARMA.NS",
+        "TITAN - Titan Company Ltd": "TITAN.NS",
+        "WIPRO - Wipro Ltd": "WIPRO.NS",
+        "ULTRACEMCO - UltraTech Cement Ltd": "ULTRACEMCO.NS",
+        "TATAMOTORS - Tata Motors Ltd": "TATAMOTORS.NS",
+        "TATASTEEL - Tata Steel Ltd": "TATASTEEL.NS",
+        "POWERGRID - Power Grid Corporation of India Ltd": "POWERGRID.NS",
+        "NTPC - NTPC Ltd": "NTPC.NS",
+        "ONGC - Oil & Natural Gas Corporation Ltd": "ONGC.NS",
+        "ASIANPAINT - Asian Paints Ltd": "ASIANPAINT.NS",
+        "ZOMATO - Zomato Ltd": "ZOMATO.NS"
+    }
+    
+    for k, v in fallback_stocks.items():
+        if k not in stocks:
+            stocks[k] = v
+            
+    return stocks
+
 # Fetch real-time price with short caching for speed
 @st.cache_data(ttl=2)
 def fetch_live_price(ticker_symbol):
