@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from modules.broker_engine import get_account_summary, place_order, get_orders, get_positions, square_off_position, reset_account, check_auto_exits, update_sl_tp
+from modules.broker_engine import get_account_summary, place_order, get_orders, get_positions, square_off_position, reset_account, check_auto_exits, update_sl_tp, update_account_capital
 
 # Page Configuration
 st.set_page_config(
@@ -62,7 +62,7 @@ def get_exchange_stocks():
         "MARUTI - Maruti Suzuki India Ltd": "MARUTI.NS",
         "SUNPHARMA - Sun Pharmaceutical Industries Ltd": "SUNPHARMA.NS",
         "TITAN - Titan Company Ltd": "TITAN.NS",
-        "WIPRO - WIPRO.NS": "WIPRO.NS",
+        "WIPRO - Wipro Ltd": "WIPRO.NS",
         "ULTRACEMCO - UltraTech Cement Ltd": "ULTRACEMCO.NS",
         "TATAMOTORS - Tata Motors Ltd": "TATAMOTORS.NS",
         "TATASTEEL - Tata Steel Ltd": "TATASTEEL.NS",
@@ -132,7 +132,6 @@ est_total_fees = round(est_regulatory + est_platform_fee, 2)
 
 est_required = (turnover * margin_mult) + (est_total_fees if txn_type == "BUY" else 0.0)
 
-# Check against current available cash for immediate sidebar warning
 account_summary = get_account_summary()
 available_cash = account_summary['cash_balance']
 
@@ -149,14 +148,21 @@ if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=T
         st.sidebar.error(msg)
 
 st.sidebar.markdown("---")
-if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
+st.sidebar.markdown("#### ⚙️ Account Management")
+new_capital_input = st.sidebar.number_input("Set Custom Cash Balance (₹)", min_value=1000.0, value=float(available_cash), step=10000.0)
+if st.sidebar.button("💾 Update Capital"):
+    update_account_capital(new_capital_input)
+    st.sidebar.success(f"Capital updated to ₹{new_capital_input:,.2f}!")
+    st.rerun()
+
+if st.sidebar.button("⚠️ Reset Account (Default ₹10L)", type="secondary"):
     reset_account()
     st.sidebar.success("Account reset successfully!")
     st.rerun()
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Professional Equity paper trading environment with strict margin enforcement and live streaming.")
+st.markdown("Professional Equity paper trading environment with custom capital management and real-time streaming.")
 
 @st.fragment(run_every=2)
 def live_dashboard_fragment():
