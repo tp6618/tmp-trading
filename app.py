@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import yfinance as yf
-from modules.broker_engine import get_account_summary, place_order, get_orders, get_positions
+from modules.broker_engine import get_account_summary, place_order, get_orders, get_positions, square_off_position, reset_account
 
 # Page Configuration
 st.set_page_config(
@@ -32,7 +32,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Comprehensive dictionary of NSE & BSE stocks with robust fallback handling
 @st.cache_data
 def get_exchange_stocks():
     return {
@@ -60,35 +59,9 @@ def get_exchange_stocks():
         "NTPC - NTPC Ltd": "NTPC.NS",
         "ONGC - Oil & Natural Gas Corporation Ltd": "ONGC.NS",
         "ASIANPAINT - Asian Paints Ltd": "ASIANPAINT.NS",
-        "ADANIENT - Adani Enterprises Ltd": "ADANIENT.NS",
-        "ADANIPORTS - Adani Ports and Special Economic Zone Ltd": "ADANIPORTS.NS",
-        "COALINDIA - Coal India Ltd": "COALINDIA.NS",
-        "BAJAJFINSV - Bajaj Finserv Ltd": "BAJAJFINSV.NS",
-        "GRASIM - Grasim Industries Ltd": "GRASIM.NS",
-        "HINDALCO - Hindalco Industries Ltd": "HINDALCO.NS",
-        "TECHM - Tech Mahindra Ltd": "TECHM.NS",
-        "NESTLEIND - Nestle India Ltd": "NESTLEIND.NS",
-        "JSWSTEEL - JSW Steel Ltd": "JSWSTEEL.NS",
-        "DRREDDY - Dr. Reddy's Laboratories Ltd": "DRREDDY.NS",
-        "CIPLA - Cipla Ltd": "CIPLA.NS",
-        "BPCL - Bharat Petroleum Corporation Ltd": "BPCL.NS",
-        "EICHERMOT - Eicher Motors Ltd": "EICHERMOT.NS",
-        "HEROMOTOCO - Hero MotoCorp Ltd": "HEROMOTOCO.NS",
-        "BRITANNIA - Britannia Industries Ltd": "BRITANNIA.NS",
-        "SBILIFE - SBI Life Insurance Company Ltd": "SBILIFE.NS",
-        "HDFCLIFE - HDFC Life Insurance Company Ltd": "HDFCLIFE.NS",
-        "DIVISLAB - Divi's Laboratories Ltd": "DIVISLAB.NS",
-        "APOLLOHOSP - Apollo Hospitals Enterprise Ltd": "APOLLOHOSP.NS",
-        "TRENT - Trent Ltd": "TRENT.NS",
-        "ZOMATO - Zomato Ltd": "ZOMATO.NS",
-        "PAYTM - One 97 Communications Ltd": "PAYTM.NS",
-        "NYKAA - FSN E-Commerce Ventures Ltd": "NYKAA.NS",
-        "TATAPOWER - Tata Power Co Ltd": "TATAPOWER.NS",
-        "IRCTC - Catering and Tourism Corp Ltd": "IRCTC.NS",
-        "VODAFONE - Vodafone Idea Ltd": "IDEA.NS"
+        "ZOMATO - Zomato Ltd": "ZOMATO.NS"
     }
 
-# Helper function to fetch real-time LTP with caching
 @st.cache_data(ttl=5)
 def fetch_live_price(ticker_symbol):
     try:
@@ -119,16 +92,14 @@ else:
     }
     available_products = ["F&O Intraday (MIS)", "F&O Carry Forward (NRML)"]
 
-# Interactive Search / Select Box Bar
 selected_option = st.sidebar.selectbox("🔍 Search & Select Stock", list(stock_mapping.keys()))
 ticker_code = stock_mapping[selected_option]
 
-# Fetch Real-Time LTP
 with st.spinner("Fetching live tick..."):
     ltp = fetch_live_price(ticker_code)
 
 if ltp == 0.00:
-    ltp = 1000.00  # Fallback safety default
+    ltp = 1000.00
 
 st.sidebar.markdown(f"### Live LTP: `₹{ltp:,.2f}`")
 
@@ -136,7 +107,6 @@ txn_type = st.sidebar.radio("Action Type", ["BUY", "SELL"], horizontal=True)
 product = st.sidebar.selectbox("Product Type", available_products)
 qty = st.sidebar.number_input("Quantity / Lot Size", min_value=1, value=15)
 
-# Dynamic Margin Calculation Preview
 if "Intraday" in product:
     margin_mult = 0.2
 elif "Delivery" in product:
@@ -156,16 +126,21 @@ if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=T
     else:
         st.sidebar.error(msg)
 
+st.sidebar.markdown("---")
+if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
+    reset_account()
+    st.sidebar.success("Account reset successfully!")
+    time.sleep(0.5)
+    st.rerun()
+
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
 st.markdown("Universal paper trading environment featuring instant search across leading Indian equities.")
 
-# Fetch Account Balances
 account = get_account_summary()
 free_cash = account['cash_balance']
 utilized = account['utilized_margin']
 
-# Compute Live Unrealized P&L from Active Positions
 positions_df = get_positions()
 total_unrealized_pnl = 0.0
 
@@ -197,7 +172,6 @@ if not positions_df.empty:
 
 total_portfolio_value = free_cash + utilized + total_unrealized_pnl
 
-# Top Financial Metrics Bar (Centered layout)
 st.markdown("### 📊 Account Performance Metrics")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Available Cash", f"₹{free_cash:,.2f}")
@@ -207,15 +181,36 @@ col4.metric("Unrealized P&L", f"₹{total_unrealized_pnl:,.2f}", delta=f"₹{tot
 
 st.markdown("---")
 
-# Portfolio Management Centered Tabs
 tab1, tab2, tab3 = st.tabs(["📊 Active Positions", "📑 Order Book", "💰 Ledger Summary"])
 
 with tab1:
     st.subheader("Open Positions & Real-Time P&L")
     if not positions_df.empty:
         st.dataframe(positions_df, use_container_width=True)
+        
+        st.markdown("### ❌ Exit / Square Off Position")
+        col_sym, col_prod, col_btn = st.columns([2, 2, 1])
+        with col_sym:
+            so_symbol = st.selectbox("Select Position Symbol", positions_df['symbol'].tolist(), key="so_sym")
+        with col_prod:
+            so_product = st.selectbox("Select Product", positions_df[positions_df['symbol'] == so_symbol]['product'].tolist(), key="so_prod")
+        with col_btn:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Square Off Position", type="primary"):
+                so_code = stock_mapping.get(so_symbol, "RELIANCE.NS")
+                exit_price = fetch_live_price(so_code)
+                if exit_price == 0.0:
+                    exit_price = 1000.0
+                
+                success, msg = square_off_position(so_symbol, so_product, exit_price)
+                if success:
+                    st.success(msg)
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error(msg)
     else:
-        st.info("No open positions currently active. Use the search bar to find and trade any asset.")
+        st.info("No open positions currently active.")
 
 with tab2:
     st.subheader("Complete Order Book History")
@@ -229,12 +224,10 @@ with tab3:
     st.subheader("Ledger Details")
     st.json({
         "Broker Name": "TMP TRADING",
-        "Exchange Directory": "NSE & BSE Active Equities",
         "Available Cash Balance": f"₹{free_cash:,.2f}",
         "Blocked Exposure Margin": f"₹{utilized:,.2f}"
     })
 
-# Real-Time Ticker Refresh Feed Toggles
 if st.sidebar.checkbox("Enable Live Ticker Refresh (5s)", value=True):
     time.sleep(5)
     st.rerun()
