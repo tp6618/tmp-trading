@@ -111,16 +111,23 @@ txn_type = st.sidebar.radio("Action Type", ["BUY", "SELL"], horizontal=True)
 product = st.sidebar.selectbox("Product Type", available_products)
 qty = st.sidebar.number_input("Quantity", min_value=1, value=15)
 
+# Price Selection Mode (LTP vs Manual)
+price_mode = st.sidebar.radio("Price Mode", ["Live LTP", "Manual Price"], horizontal=True)
+if price_mode == "Manual Price":
+    execution_price = st.sidebar.number_input("Enter Custom Entry Price", min_value=0.05, value=float(ltp), step=0.5)
+else:
+    execution_price = ltp
+
 st.sidebar.markdown("#### 🛡️ Risk Management (SL / TP)")
 sl_price = st.sidebar.number_input("Stop Loss (SL) Price", min_value=0.0, value=0.0, step=0.5)
 tp_price = st.sidebar.number_input("Take Profit (TP) Price", min_value=0.0, value=0.0, step=0.5)
 
 margin_mult = 0.2 if "Intraday" in product else 1.0
-est_required = (ltp * qty) * margin_mult
+est_required = (execution_price * qty) * margin_mult
 st.sidebar.caption(f"Estimated Margin Needed: **₹{est_required:,.2f}**")
 
 if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=True):
-    success, msg = place_order(selected_option, txn_type, product, qty, ltp, sl_price, tp_price)
+    success, msg = place_order(selected_option, txn_type, product, qty, execution_price, sl_price, tp_price)
     if success:
         st.sidebar.success(msg)
     else:
@@ -134,7 +141,7 @@ if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Professional Equity paper trading environment with live prices, strict market hours, and real-time background streaming.")
+st.markdown("Professional Equity paper trading environment with Manual/LTP pricing, strict market hours, and real-time streaming.")
 
 @st.fragment(run_every=2)
 def live_dashboard_fragment():
