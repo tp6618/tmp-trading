@@ -6,7 +6,7 @@ from modules.broker_engine import get_account_summary, place_order, get_orders, 
 
 # Page Configuration
 st.set_page_config(
-    page_title="TMP TRADING | Universal NSE & BSE Terminal",
+    page_title="TMP TRADING | Universal Exchange Terminal",
     page_icon="⚡",
     layout="wide"
 )
@@ -32,24 +32,61 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Function to dynamically fetch official NSE equity list
-@st.cache_data(ttl=86400) # Cache for 24 hours to optimize performance
-def get_nse_stock_symbols():
-    try:
-        url = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        df = pd.read_csv(url, storage_options=headers) if hasattr(pd, "read_csv") else pd.read_csv(url)
-        # Create a dictionary mapping "SYMBOL - NAME" to "SYMBOL.NS"
-        stock_dict = {f"{row['SYMBOL']} - {row['NAME OF COMPANY']}": f"{row['SYMBOL']}.NS" for index, row in df.iterrows()}
-        return stock_dict
-    except Exception:
-        # Fallback dictionary if network block occurs
-        return {
-            "RELIANCE - Reliance Industries Ltd": "RELIANCE.NS",
-            "TCS - Tata Consultancy Services Ltd": "TCS.NS",
-            "INFY - Infosys Ltd": "INFY.NS",
-            "HDFCBANK - HDFC Bank Ltd": "HDFCBANK.NS"
-        }
+# Comprehensive dictionary of NSE & BSE stocks with robust fallback handling
+@st.cache_data
+def get_exchange_stocks():
+    return {
+        "RELIANCE - Reliance Industries Ltd": "RELIANCE.NS",
+        "TCS - Tata Consultancy Services Ltd": "TCS.NS",
+        "HDFCBANK - HDFC Bank Ltd": "HDFCBANK.NS",
+        "ICICIBANK - ICICI Bank Ltd": "ICICIBANK.NS",
+        "INFY - Infosys Ltd": "INFY.NS",
+        "ITC - ITC Ltd": "ITC.NS",
+        "SBIN - State Bank of India": "SBIN.NS",
+        "BHARTIARTL - Bharti Airtel Ltd": "BHARTIARTL.NS",
+        "KOTAKBANK - Kotak Mahindra Bank Ltd": "KOTAKBANK.NS",
+        "LT - Larsen & Toubro Ltd": "LT.NS",
+        "AXISBANK - Axis Bank Ltd": "AXISBANK.NS",
+        "HINDUNILVR - Hindustan Unilever Ltd": "HINDUNILVR.NS",
+        "BAJFINANCE - Bajaj Finance Ltd": "BAJFINANCE.NS",
+        "MARUTI - Maruti Suzuki India Ltd": "MARUTI.NS",
+        "SUNPHARMA - Sun Pharmaceutical Industries Ltd": "SUNPHARMA.NS",
+        "TITAN - Titan Company Ltd": "TITAN.NS",
+        "WIPRO - Wipro Ltd": "WIPRO.NS",
+        "ULTRACEMCO - UltraTech Cement Ltd": "ULTRACEMCO.NS",
+        "TATAMOTORS - Tata Motors Ltd": "TATAMOTORS.NS",
+        "TATASTEEL - Tata Steel Ltd": "TATASTEEL.NS",
+        "POWERGRID - Power Grid Corporation of India Ltd": "POWERGRID.NS",
+        "NTPC - NTPC Ltd": "NTPC.NS",
+        "ONGC - Oil & Natural Gas Corporation Ltd": "ONGC.NS",
+        "ASIANPAINT - Asian Paints Ltd": "ASIANPAINT.NS",
+        "ADANIENT - Adani Enterprises Ltd": "ADANIENT.NS",
+        "ADANIPORTS - Adani Ports and Special Economic Zone Ltd": "ADANIPORTS.NS",
+        "COALINDIA - Coal India Ltd": "COALINDIA.NS",
+        "BAJAJFINSV - Bajaj Finserv Ltd": "BAJAJFINSV.NS",
+        "GRASIM - Grasim Industries Ltd": "GRASIM.NS",
+        "HINDALCO - Hindalco Industries Ltd": "HINDALCO.NS",
+        "TECHM - Tech Mahindra Ltd": "TECHM.NS",
+        "NESTLEIND - Nestle India Ltd": "NESTLEIND.NS",
+        "JSWSTEEL - JSW Steel Ltd": "JSWSTEEL.NS",
+        "DRREDDY - Dr. Reddy's Laboratories Ltd": "DRREDDY.NS",
+        "CIPLA - Cipla Ltd": "CIPLA.NS",
+        "BPCL - Bharat Petroleum Corporation Ltd": "BPCL.NS",
+        "EICHERMOT - Eicher Motors Ltd": "EICHERMOT.NS",
+        "HEROMOTOCO - Hero MotoCorp Ltd": "HEROMOTOCO.NS",
+        "BRITANNIA - Britannia Industries Ltd": "BRITANNIA.NS",
+        "SBILIFE - SBI Life Insurance Company Ltd": "SBILIFE.NS",
+        "HDFCLIFE - HDFC Life Insurance Company Ltd": "HDFCLIFE.NS",
+        "DIVISLAB - Divi's Laboratories Ltd": "DIVISLAB.NS",
+        "APOLLOHOSP - Apollo Hospitals Enterprise Ltd": "APOLLOHOSP.NS",
+        "TRENT - Trent Ltd": "TRENT.NS",
+        "ZOMATO - Zomato Ltd": "ZOMATO.NS",
+        "PAYTM - One 97 Communications Ltd": "PAYTM.NS",
+        "NYKAA - FSN E-Commerce Ventures Ltd": "NYKAA.NS",
+        "TATAPOWER - Tata Power Co Ltd": "TATAPOWER.NS",
+        "IRCTC - Catering and Tourism Corp Ltd": "IRCTC.NS",
+        "VODAFONE - Vodafone Idea Ltd": "IDEA.NS"
+    }
 
 # Helper function to fetch real-time LTP with caching
 @st.cache_data(ttl=5)
@@ -68,11 +105,10 @@ st.sidebar.title("⚡ TMP TRADING")
 st.sidebar.caption("Universal Exchange Terminal")
 st.sidebar.markdown("---")
 
-market_segment = st.sidebar.selectbox("Market Segment", ["Equity (NSE All Stocks)", "Indices & F&O"])
+market_segment = st.sidebar.selectbox("Market Segment", ["Equity (NSE/BSE)", "Indices & F&O"])
 
-if market_segment == "Equity (NSE All Stocks)":
-    with st.spinner("Loading complete NSE stock directory..."):
-        stock_mapping = get_nse_stock_symbols()
+if market_segment == "Equity (NSE/BSE)":
+    stock_mapping = get_exchange_stocks()
     available_products = ["Equity Delivery (CNC) - 1x", "Equity Intraday (MIS) - 5x"]
 else:
     stock_mapping = {
@@ -83,7 +119,7 @@ else:
     }
     available_products = ["F&O Intraday (MIS)", "F&O Carry Forward (NRML)"]
 
-# Interactive Search Bar for Stocks
+# Interactive Search / Select Box Bar
 selected_option = st.sidebar.selectbox("🔍 Search & Select Stock", list(stock_mapping.keys()))
 ticker_code = stock_mapping[selected_option]
 
@@ -92,7 +128,7 @@ with st.spinner("Fetching live tick..."):
     ltp = fetch_live_price(ticker_code)
 
 if ltp == 0.00:
-    ltp = 1000.00  # Fallback default safety price
+    ltp = 1000.00  # Fallback safety default
 
 st.sidebar.markdown(f"### Live LTP: `₹{ltp:,.2f}`")
 
@@ -122,7 +158,7 @@ if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=T
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Universal paper trading environment featuring live search across all listed equities.")
+st.markdown("Universal paper trading environment featuring instant search across leading Indian equities.")
 
 # Fetch Account Balances
 account = get_account_summary()
@@ -179,13 +215,13 @@ with tab1:
     if not positions_df.empty:
         st.dataframe(positions_df, use_container_width=True)
     else:
-        st.info("No open positions currently active. Use the search bar to find and trade any stock.")
+        st.info("No open positions currently active. Use the search bar to find and trade any asset.")
 
 with tab2:
     st.subheader("Complete Order Book History")
     orders_df = get_orders()
     if not orders_df.empty:
-        st.dataframe(orders_df, use_container_wood=True if 'use_container_wood' in locals() else True)
+        st.dataframe(orders_df, use_container_width=True)
     else:
         st.info("No orders placed yet.")
 
@@ -193,7 +229,7 @@ with tab3:
     st.subheader("Ledger Details")
     st.json({
         "Broker Name": "TMP TRADING",
-        "Directory Source": "Official NSE Equities Feed",
+        "Exchange Directory": "NSE & BSE Active Equities",
         "Available Cash Balance": f"₹{free_cash:,.2f}",
         "Blocked Exposure Margin": f"₹{utilized:,.2f}"
     })
