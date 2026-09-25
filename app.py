@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
-import time
 import yfinance as yf
 from modules.broker_engine import get_account_summary, place_order, get_orders, get_positions, square_off_position, reset_account, check_auto_exits, update_sl_tp
 
 # Page Configuration
 st.set_page_config(
-    page_title="TMP TRADING | Universal Exchange Terminal",
+    page_title="TMP TRADING | Live Exchange Terminal",
     page_icon="⚡",
     layout="wide"
 )
@@ -80,7 +79,8 @@ def get_exchange_stocks():
             
     return stocks
 
-@st.cache_data(ttl=5)
+# Fetch real-time price with short caching for speed
+@st.cache_data(ttl=2)
 def fetch_live_price(ticker_symbol):
     try:
         data = yf.Ticker(ticker_symbol)
@@ -113,9 +113,8 @@ else:
 selected_option = st.sidebar.selectbox("🔍 Search & Select Stock", list(stock_mapping.keys()))
 ticker_code = stock_mapping[selected_option]
 
-with st.spinner("Fetching live tick..."):
-    ltp = fetch_live_price(ticker_code)
-
+# Instant LTP Display
+ltp = fetch_live_price(ticker_code)
 if ltp == 0.00:
     ltp = 1000.00
 
@@ -143,8 +142,6 @@ if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=T
     success, msg = place_order(selected_option, txn_type, product, qty, ltp, sl_price, tp_price)
     if success:
         st.sidebar.success(msg)
-        time.sleep(0.5)
-        st.rerun()
     else:
         st.sidebar.error(msg)
 
@@ -152,126 +149,124 @@ st.sidebar.markdown("---")
 if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
     reset_account()
     st.sidebar.success("Account reset successfully!")
-    time.sleep(0.5)
     st.rerun()
-
-# Run Auto-Exit Check against live prices
-auto_exit_msgs = check_auto_exits(fetch_live_price, stock_mapping)
-for msg in auto_exit_msgs:
-    st.warning(msg)
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Universal paper trading environment with strict market hours enforcement and SL/TP management.")
+st.markdown("Institutional paper trading environment with real-time background streaming and market hours checks.")
 
-account = get_account_summary()
-free_cash = account['cash_balance']
-utilized = account['utilized_margin']
+# Use a Streamlit Fragment running every 2 seconds in the background for live updates without lag
+@st.fragment(run_every=2)
+def live_dashboard_fragment():
+    # Check automated Stop Loss / Take Profit exits
+    auto_exit_msgs = check_auto_exits(fetch_live_price, stock_mapping)
+    for msg in auto_exit_msgs:
+        st.warning(msg)
 
-positions_df = get_positions()
-total_unrealized_pnl = 0.0
+    account = get_account_summary()
+    free_cash = account['cash_balance']
+    utilized = account['utilized_margin']
 
-if not positions_df.empty:
-    live_ltps = []
-    pnl_list = []
-    pnl_pct_list = []
-    
-    for idx, row in positions_df.iterrows():
-        sym_name = row['symbol']
-        sym_code = stock_mapping.get(sym_name, "RELIANCE.NS")
-            
-        current_ltp = fetch_live_price(sym_code)
-        if current_ltp == 0.0:
-            current_ltp = row['avg_price']
-            
-        live_ltps.append(current_ltp)
-        
-        pnl = (current_ltp - row['avg_price']) * row['quantity']
-        pnl_pct = ((current_ltp - row['avg_price']) / row['avg_price']) * 100 if row['avg_price'] > 0 else 0.0
-        
-        pnl_list.append(round(pnl, 2))
-        pnl_pct_list.append(f"{pnl_pct:.2f}%")
-        total_unrealized_pnl += pnl
+    positions_df = get_positions()
+    total_unrealized_pnl = 0.0
 
-    positions_df['LTP'] = live_ltps
-    positions_df['Unrealized P&L'] = pnl_list
-    positions_df['P&L (%)'] = pnl_pct_list
-
-total_portfolio_value = free_cash + utilized + total_unrealized_pnl
-
-st.markdown("### 📊 Account Performance Metrics")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Available Cash", f"₹{free_cash:,.2f}")
-col2.metric("Utilized Margin", f"₹{utilized:,.2f}")
-col3.metric("Total Net Worth", f"₹{total_portfolio_value:,.2f}")
-col4.metric("Unrealized P&L", f"₹{total_unrealized_pnl:,.2f}", delta=f"₹{total_unrealized_pnl:,.2f}")
-
-st.markdown("---")
-
-tab1, tab2, tab3 = st.tabs(["📊 Active Positions", "📑 Order Book", "💰 Ledger Summary"])
-
-with tab1:
-    st.subheader("Open Positions, SL/TP & Real-Time P&L")
     if not positions_df.empty:
-        st.dataframe(positions_df, use_container_width=True)
+        live_ltps = []
+        pnl_list = []
+        pnl_pct_list = []
         
-        st.markdown("### ⚙️ Manage SL / TP & Manual Exit")
-        col_sym, col_prod, col_sl, col_tp, col_btn = st.columns([2, 2, 1, 1, 1])
-        with col_sym:
-            mod_symbol = st.selectbox("Position Symbol", positions_df['symbol'].tolist(), key="mod_sym")
-        with col_prod:
-            mod_product = st.selectbox("Product Type", positions_df[positions_df['symbol'] == mod_symbol]['product'].tolist(), key="mod_prod")
-        
-        # Get existing SL and TP for the selected position
-        current_pos_row = positions_df[(positions_df['symbol'] == mod_symbol) & (positions_df['product'] == mod_product)]
-        default_sl = float(current_pos_row['sl_price'].values[0]) if not current_pos_row.empty else 0.0
-        default_tp = float(current_pos_row['tp_price'].values[0]) if not current_pos_row.empty else 0.0
-        
-        with col_sl:
-            new_sl = st.number_input("New SL", value=default_sl, step=0.5, key="new_sl")
-        with col_tp:
-            new_tp = st.number_input("New TP", value=default_tp, step=0.5, key="new_tp")
-        with col_btn:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Update SL/TP", type="secondary"):
-                update_sl_tp(mod_symbol, mod_product, new_sl, new_tp)
-                st.success("SL/TP Updated!")
-                time.sleep(0.5)
-                st.rerun()
-
-        st.markdown("---")
-        if st.button("❌ Square Off Position", type="primary"):
-            so_code = stock_mapping.get(mod_symbol, "RELIANCE.NS")
-            exit_price = fetch_live_price(so_code)
-            if exit_price == 0.0:
-                exit_price = 1000.0
+        for idx, row in positions_df.iterrows():
+            sym_name = row['symbol']
+            sym_code = stock_mapping.get(sym_name, "RELIANCE.NS")
+                
+            current_ltp = fetch_live_price(sym_code)
+            if current_ltp == 0.0:
+                current_ltp = row['avg_price']
+                
+            live_ltps.append(current_ltp)
             
-            success, msg = square_off_position(mod_symbol, mod_product, exit_price)
-            if success:
-                st.success(msg)
-                time.sleep(0.5)
-                st.rerun()
-            else:
-                st.error(msg)
-    else:
-        st.info("No open positions currently active.")
+            pnl = (current_ltp - row['avg_price']) * row['quantity']
+            pnl_pct = ((current_ltp - row['avg_price']) / row['avg_price']) * 100 if row['avg_price'] > 0 else 0.0
+            
+            pnl_list.append(round(pnl, 2))
+            pnl_pct_list.append(f"{pnl_pct:.2f}%")
+            total_unrealized_pnl += pnl
 
-with tab2:
-    st.subheader("Complete Order Book History")
-    orders_df = get_orders()
-    if not orders_df.empty:
-        st.dataframe(orders_df, use_container_width=True)
-    else:
-        st.info("No orders placed yet.")
+        positions_df['LTP'] = live_ltps
+        positions_df['Unrealized P&L'] = pnl_list
+        positions_df['P&L (%)'] = pnl_pct_list
 
-with tab3:
-    st.subheader("Ledger Details")
-    st.json({
-        "Broker Name": "TMP TRADING",
-        "Available Cash Balance": f"₹{free_cash:,.2f}",
-        "Blocked Exposure Margin": f"₹{utilized:,.2f}"
-    })
+    total_portfolio_value = free_cash + utilized + total_unrealized_pnl
 
-if st.sidebar.checkbox("Enable Live Ticker Refresh (5s)", value=True):
-    time.sleep(5)
-    st.rerun()
+    st.markdown("### 📊 Account Performance Metrics")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Available Cash", f"₹{free_cash:,.2f}")
+    col2.metric("Utilized Margin", f"₹{utilized:,.2f}")
+    col3.metric("Total Net Worth", f"₹{total_portfolio_value:,.2f}")
+    col4.metric("Unrealized P&L", f"₹{total_unrealized_pnl:,.2f}", delta=f"₹{total_unrealized_pnl:,.2f}")
+
+    st.markdown("---")
+
+    tab1, tab2, tab3 = st.tabs(["📊 Active Positions", "📑 Order Book", "💰 Ledger Summary"])
+
+    with tab1:
+        st.subheader("Open Positions, SL/TP & Real-Time P&L")
+        if not positions_df.empty:
+            st.dataframe(positions_df, use_container_width=True)
+            
+            st.markdown("### ⚙️ Manage SL / TP & Manual Exit")
+            col_sym, col_prod, col_sl, col_tp, col_btn = st.columns([2, 2, 1, 1, 1])
+            with col_sym:
+                mod_symbol = st.selectbox("Position Symbol", positions_df['symbol'].tolist(), key="mod_sym")
+            with col_prod:
+                mod_product = st.selectbox("Product Type", positions_df[positions_df['symbol'] == mod_symbol]['product'].tolist(), key="mod_prod")
+            
+            current_pos_row = positions_df[(positions_df['symbol'] == mod_symbol) & (positions_df['product'] == mod_product)]
+            default_sl = float(current_pos_row['sl_price'].values[0]) if not current_pos_row.empty else 0.0
+            default_tp = float(current_pos_row['tp_price'].values[0]) if not current_pos_row.empty else 0.0
+            
+            with col_sl:
+                new_sl = st.number_input("New SL", value=default_sl, step=0.5, key="new_sl")
+            with col_tp:
+                new_tp = st.number_input("New TP", value=default_tp, step=0.5, key="new_tp")
+            with col_btn:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("Update SL/TP", type="secondary"):
+                    update_sl_tp(mod_symbol, mod_product, new_sl, new_tp)
+                    st.success("SL/TP Updated!")
+                    st.rer() # Refresh fragment instantly
+
+            st.markdown("---")
+            if st.button("❌ Square Off Position", type="primary"):
+                so_code = stock_mapping.get(mod_symbol, "RELIANCE.NS")
+                exit_price = fetch_live_price(so_code)
+                if exit_price == 0.0:
+                    exit_price = 1000.0
+                
+                success, msg = square_off_position(mod_symbol, mod_product, exit_price)
+                if success:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+        else:
+            st.info("No open positions currently active.")
+
+    with tab2:
+        st.subheader("Complete Order Book History")
+        orders_df = get_orders()
+        if not orders_df.empty:
+            st.dataframe(orders_df, use_container_width=True)
+        else:
+            st.info("No orders placed yet.")
+
+    with tab3:
+        st.subheader("Ledger Details")
+        st.json({
+            "Broker Name": "TMP TRADING",
+            "Available Cash Balance": f"₹{free_cash:,.2f}",
+            "Blocked Exposure Margin": f"₹{utilized:,.2f}"
+        })
+
+# Call the real-time background streaming fragment
+live_dashboard_fragment()
