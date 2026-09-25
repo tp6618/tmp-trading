@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import yfinance as yf
-from modules.broker_engine import get_account_summary, place_order, get_orders, get_positions, square_off_position, reset_account, check_auto_exits
+from modules.broker_engine import get_account_summary, place_order, get_orders, get_positions, square_off_position, reset_account, check_auto_exits, update_sl_tp
 
 # Page Configuration
 st.set_page_config(
@@ -32,12 +32,10 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Auto-fetch comprehensive NSE & BSE stock list dynamically with robust fallback
 @st.cache_data(ttl=86400)
 def get_exchange_stocks():
     stocks = {}
     try:
-        # Attempt to pull official live NSE equity symbol list CSV
         url = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         df = pd.read_csv(url, storage_options=headers)
@@ -48,7 +46,6 @@ def get_exchange_stocks():
     except Exception:
         pass
     
-    # Comprehensive fallback/expansion dictionary covering all major NSE/BSE equities if live fetch is restricted
     fallback_stocks = {
         "RELIANCE - Reliance Industries Ltd": "RELIANCE.NS",
         "TCS - Tata Consultancy Services Ltd": "TCS.NS",
@@ -74,35 +71,9 @@ def get_exchange_stocks():
         "NTPC - NTPC Ltd": "NTPC.NS",
         "ONGC - Oil & Natural Gas Corporation Ltd": "ONGC.NS",
         "ASIANPAINT - Asian Paints Ltd": "ASIANPAINT.NS",
-        "ADANIENT - Adani Enterprises Ltd": "ADANIENT.NS",
-        "ADANIPORTS - Adani Ports and Special Economic Zone Ltd": "ADANIPORTS.NS",
-        "COALINDIA - Coal India Ltd": "COALINDIA.NS",
-        "BAJAJFINSV - Bajaj Finserv Ltd": "BAJAJFINSV.NS",
-        "GRASIM - Grasim Industries Ltd": "GRASIM.NS",
-        "HINDALCO - Hindalco Industries Ltd": "HINDALCO.NS",
-        "TECHM - Tech Mahindra Ltd": "TECHM.NS",
-        "NESTLEIND - Nestle India Ltd": "NESTLEIND.NS",
-        "JSWSTEEL - JSW Steel Ltd": "JSWSTEEL.NS",
-        "DRREDDY - Dr. Reddy's Laboratories Ltd": "DRREDDY.NS",
-        "CIPLA - Cipla Ltd": "CIPLA.NS",
-        "BPCL - Bharat Petroleum Corporation Ltd": "BPCL.NS",
-        "EICHERMOT - Eicher Motors Ltd": "EICHERMOT.NS",
-        "HEROMOTOCO - Hero MotoCorp Ltd": "HEROMOTOCO.NS",
-        "BRITANNIA - Britannia Industries Ltd": "BRITANNIA.NS",
-        "SBILIFE - SBI Life Insurance Company Ltd": "SBILIFE.NS",
-        "HDFCLIFE - HDFC Life Insurance Company Ltd": "HDFCLIFE.NS",
-        "DIVISLAB - Divi's Laboratories Ltd": "DIVISLAB.NS",
-        "APOLLOHOSP - Apollo Hospitals Enterprise Ltd": "APOLLOHOSP.NS",
-        "TRENT - Trent Ltd": "TRENT.NS",
-        "ZOMATO - Zomato Ltd": "ZOMATO.NS",
-        "PAYTM - One 97 Communications Ltd": "PAYTM.NS",
-        "NYKAA - FSN E-Commerce Ventures Ltd": "NYKAA.NS",
-        "TATAPOWER - Tata Power Co Ltd": "TATAPOWER.NS",
-        "IRCTC - Catering and Tourism Corp Ltd": "IRCTC.NS",
-        "VODAFONE - Vodafone Idea Ltd": "IDEA.NS"
+        "ZOMATO - Zomato Ltd": "ZOMATO.NS"
     }
     
-    # Merge both to ensure complete coverage
     for k, v in fallback_stocks.items():
         if k not in stocks:
             stocks[k] = v
@@ -191,7 +162,7 @@ for msg in auto_exit_msgs:
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Universal paper trading environment with auto-fetched exchange listings, SL/TP risk controls, and automated exits.")
+st.markdown("Universal paper trading environment with strict market hours enforcement and SL/TP management.")
 
 account = get_account_summary()
 free_cash = account['cash_balance']
@@ -244,27 +215,44 @@ with tab1:
     if not positions_df.empty:
         st.dataframe(positions_df, use_container_width=True)
         
-        st.markdown("### ❌ Manual Exit / Square Off Position")
-        col_sym, col_prod, col_btn = st.columns([2, 2, 1])
+        st.markdown("### ⚙️ Manage SL / TP & Manual Exit")
+        col_sym, col_prod, col_sl, col_tp, col_btn = st.columns([2, 2, 1, 1, 1])
         with col_sym:
-            so_symbol = st.selectbox("Select Position Symbol", positions_df['symbol'].tolist(), key="so_sym")
+            mod_symbol = st.selectbox("Position Symbol", positions_df['symbol'].tolist(), key="mod_sym")
         with col_prod:
-            so_product = st.selectbox("Select Product", positions_df[positions_df['symbol'] == so_symbol]['product'].tolist(), key="so_prod")
+            mod_product = st.selectbox("Product Type", positions_df[positions_df['symbol'] == mod_symbol]['product'].tolist(), key="mod_prod")
+        
+        # Get existing SL and TP for the selected position
+        current_pos_row = positions_df[(positions_df['symbol'] == mod_symbol) & (positions_df['product'] == mod_product)]
+        default_sl = float(current_pos_row['sl_price'].values[0]) if not current_pos_row.empty else 0.0
+        default_tp = float(current_pos_row['tp_price'].values[0]) if not current_pos_row.empty else 0.0
+        
+        with col_sl:
+            new_sl = st.number_input("New SL", value=default_sl, step=0.5, key="new_sl")
+        with col_tp:
+            new_tp = st.number_input("New TP", value=default_tp, step=0.5, key="new_tp")
         with col_btn:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Square Off", type="primary"):
-                so_code = stock_mapping.get(so_symbol, "RELIANCE.NS")
-                exit_price = fetch_live_price(so_code)
-                if exit_price == 0.0:
-                    exit_price = 1000.0
-                
-                success, msg = square_off_position(so_symbol, so_product, exit_price)
-                if success:
-                    st.success(msg)
-                    time.sleep(0.5)
-                    st.rerun()
-                else:
-                    st.error(msg)
+            if st.button("Update SL/TP", type="secondary"):
+                update_sl_tp(mod_symbol, mod_product, new_sl, new_tp)
+                st.success("SL/TP Updated!")
+                time.sleep(0.5)
+                st.rerun()
+
+        st.markdown("---")
+        if st.button("❌ Square Off Position", type="primary"):
+            so_code = stock_mapping.get(mod_symbol, "RELIANCE.NS")
+            exit_price = fetch_live_price(so_code)
+            if exit_price == 0.0:
+                exit_price = 1000.0
+            
+            success, msg = square_off_position(mod_symbol, mod_product, exit_price)
+            if success:
+                st.success(msg)
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.error(msg)
     else:
         st.info("No open positions currently active.")
 
