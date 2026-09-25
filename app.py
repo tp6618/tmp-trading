@@ -6,7 +6,7 @@ from modules.broker_engine import get_account_summary, place_order, get_orders, 
 
 # Page Configuration
 st.set_page_config(
-    page_title="TMP TRADING | Live Multi-Segment Terminal",
+    page_title="TMP TRADING | Universal NSE & BSE Terminal",
     page_icon="⚡",
     layout="wide"
 )
@@ -32,7 +32,26 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Helper function to fetch real-time LTP from NSE feeds with caching
+# Function to dynamically fetch official NSE equity list
+@st.cache_data(ttl=86400) # Cache for 24 hours to optimize performance
+def get_nse_stock_symbols():
+    try:
+        url = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        df = pd.read_csv(url, storage_options=headers) if hasattr(pd, "read_csv") else pd.read_csv(url)
+        # Create a dictionary mapping "SYMBOL - NAME" to "SYMBOL.NS"
+        stock_dict = {f"{row['SYMBOL']} - {row['NAME OF COMPANY']}": f"{row['SYMBOL']}.NS" for index, row in df.iterrows()}
+        return stock_dict
+    except Exception:
+        # Fallback dictionary if network block occurs
+        return {
+            "RELIANCE - Reliance Industries Ltd": "RELIANCE.NS",
+            "TCS - Tata Consultancy Services Ltd": "TCS.NS",
+            "INFY - Infosys Ltd": "INFY.NS",
+            "HDFCBANK - HDFC Bank Ltd": "HDFCBANK.NS"
+        }
+
+# Helper function to fetch real-time LTP with caching
 @st.cache_data(ttl=5)
 def fetch_live_price(ticker_symbol):
     try:
@@ -46,55 +65,26 @@ def fetch_live_price(ticker_symbol):
 
 # Sidebar Order Ticket Panel
 st.sidebar.title("⚡ TMP TRADING")
-st.sidebar.caption("Institutional Paper Terminal")
+st.sidebar.caption("Universal Exchange Terminal")
 st.sidebar.markdown("---")
 
-# Segment selection category
-market_segment = st.sidebar.selectbox("Market Segment", ["Equity Cash", "Futures & Options (F&O)"])
+market_segment = st.sidebar.selectbox("Market Segment", ["Equity (NSE All Stocks)", "Indices & F&O"])
 
-if market_segment == "Equity Cash":
-    stock_mapping = {
-        "RELIANCE": "RELIANCE.NS",
-        "TCS": "TCS.NS",
-        "HDFCBANK": "HDFCBANK.NS",
-        "ICICIBANK": "ICICIBANK.NS",
-        "INFY": "INFY.NS",
-        "ITC": "ITC.NS",
-        "SBIN": "SBIN.NS",
-        "LTIM": "LTIM.NS",
-        "BHARTIARTL": "BHARTIARTL.NS",
-        "KOTAKBANK": "KOTAKBANK.NS",
-        "LT": "LT.NS",
-        "AXISBANK": "AXISBANK.NS",
-        "HINDUNILVR": "HINDUNILVR.NS",
-        "BAJFINANCE": "BAJFINANCE.NS",
-        "ASIANPAINT": "ASIANPAINT.NS",
-        "MARUTI": "MARUTI.NS",
-        "SUNPHARMA": "SUNPHARMA.NS",
-        "TITAN": "TITAN.NS",
-        "WIPRO": "WIPRO.NS",
-        "ULTRACEMCO": "ULTRACEMCO.NS",
-        "TATAMOTORS": "TATAMOTORS.NS",
-        "TATASTEEL": "TATASTEEL.NS",
-        "POWERGRID": "POWERGRID.NS",
-        "NTPC": "NTPC.NS",
-        "ONGC": "ONGC.NS"
-    }
+if market_segment == "Equity (NSE All Stocks)":
+    with st.spinner("Loading complete NSE stock directory..."):
+        stock_mapping = get_nse_stock_symbols()
     available_products = ["Equity Delivery (CNC) - 1x", "Equity Intraday (MIS) - 5x"]
 else:
     stock_mapping = {
         "NIFTY 50 Index": "^NSEI",
         "BANK NIFTY Index": "^NSEBANK",
         "FINNIFTY": "NIFTY_FIN_SERVICE.NS",
-        "NIFTY MIDCAP 50": "^NSEMDCP50",
-        "RELIANCE FNO": "RELIANCE.NS",
-        "TCS FNO": "TCS.NS",
-        "HDFCBANK FNO": "HDFCBANK.NS",
-        "SBIN FNO": "SBIN.NS"
+        "NIFTY MIDCAP 50": "^NSEMDCP50"
     }
     available_products = ["F&O Intraday (MIS)", "F&O Carry Forward (NRML)"]
 
-selected_option = st.sidebar.selectbox("Trading Symbol", list(stock_mapping.keys()))
+# Interactive Search Bar for Stocks
+selected_option = st.sidebar.selectbox("🔍 Search & Select Stock", list(stock_mapping.keys()))
 ticker_code = stock_mapping[selected_option]
 
 # Fetch Real-Time LTP
@@ -102,7 +92,7 @@ with st.spinner("Fetching live tick..."):
     ltp = fetch_live_price(ticker_code)
 
 if ltp == 0.00:
-    ltp = 2500.00  # Fallback default safety price
+    ltp = 1000.00  # Fallback default safety price
 
 st.sidebar.markdown(f"### Live LTP: `₹{ltp:,.2f}`")
 
@@ -132,7 +122,7 @@ if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=T
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Live multi-segment simulated environment supporting Equity Delivery, Intraday, and F&O.")
+st.markdown("Universal paper trading environment featuring live search across all listed equities.")
 
 # Fetch Account Balances
 account = get_account_summary()
@@ -150,12 +140,8 @@ if not positions_df.empty:
     
     for idx, row in positions_df.iterrows():
         sym_name = row['symbol']
-        sym_code = "RELIANCE.NS"
-        for k, v in stock_mapping.items():
-            if k == sym_name:
-                sym_code = v
-                break
-                
+        sym_code = stock_mapping.get(sym_name, "RELIANCE.NS")
+            
         current_ltp = fetch_live_price(sym_code)
         if current_ltp == 0.0:
             current_ltp = row['avg_price']
@@ -189,17 +175,17 @@ st.markdown("---")
 tab1, tab2, tab3 = st.tabs(["📊 Active Positions", "📑 Order Book", "💰 Ledger Summary"])
 
 with tab1:
-    st.subheader("Open Positions (Equity & F&O)")
+    st.subheader("Open Positions & Real-Time P&L")
     if not positions_df.empty:
         st.dataframe(positions_df, use_container_width=True)
     else:
-        st.info("No open positions currently active. Use the sidebar ticket to place a trade.")
+        st.info("No open positions currently active. Use the search bar to find and trade any stock.")
 
 with tab2:
     st.subheader("Complete Order Book History")
     orders_df = get_orders()
     if not orders_df.empty:
-        st.dataframe(orders_df, use_container_width=True)
+        st.dataframe(orders_df, use_container_wood=True if 'use_container_wood' in locals() else True)
     else:
         st.info("No orders placed yet.")
 
@@ -207,7 +193,7 @@ with tab3:
     st.subheader("Ledger Details")
     st.json({
         "Broker Name": "TMP TRADING",
-        "Supported Segments": ["Equity Delivery (CNC)", "Equity Intraday (MIS)", "F&O (NRML/MIS)"],
+        "Directory Source": "Official NSE Equities Feed",
         "Available Cash Balance": f"₹{free_cash:,.2f}",
         "Blocked Exposure Margin": f"₹{utilized:,.2f}"
     })
