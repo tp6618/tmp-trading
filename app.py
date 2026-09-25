@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import time
 import yfinance as yf
-from modules.broker_engine import get_account_summary, place_order, get_orders, get_positions, square_off_position, reset_account
+from modules.broker_engine import get_account_summary, place_order, get_orders, get_positions, square_off_position, reset_account, check_auto_exits
 
 # Page Configuration
 st.set_page_config(
@@ -107,6 +107,10 @@ txn_type = st.sidebar.radio("Action Type", ["BUY", "SELL"], horizontal=True)
 product = st.sidebar.selectbox("Product Type", available_products)
 qty = st.sidebar.number_input("Quantity / Lot Size", min_value=1, value=15)
 
+st.sidebar.markdown("#### 🛡️ Risk Management (SL / TP)")
+sl_price = st.sidebar.number_input("Stop Loss (SL) Price", min_value=0.0, value=0.0, step=0.5, help="Set to 0 for no Stop Loss")
+tp_price = st.sidebar.number_input("Take Profit (TP) Price", min_value=0.0, value=0.0, step=0.5, help="Set to 0 for no Take Profit")
+
 if "Intraday" in product:
     margin_mult = 0.2
 elif "Delivery" in product:
@@ -118,7 +122,7 @@ est_required = (ltp * qty) * margin_mult
 st.sidebar.caption(f"Estimated Margin Needed: **₹{est_required:,.2f}**")
 
 if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=True):
-    success, msg = place_order(selected_option, txn_type, product, qty, ltp)
+    success, msg = place_order(selected_option, txn_type, product, qty, ltp, sl_price, tp_price)
     if success:
         st.sidebar.success(msg)
         time.sleep(0.5)
@@ -133,9 +137,14 @@ if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
     time.sleep(0.5)
     st.rerun()
 
+# Run Auto-Exit Check against live prices
+auto_exit_msgs = check_auto_exits(fetch_live_price, stock_mapping)
+for msg in auto_exit_msgs:
+    st.warning(msg)
+
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Universal paper trading environment featuring instant search across leading Indian equities.")
+st.markdown("Universal paper trading environment featuring instant search, SL/TP risk controls, and automated exits.")
 
 account = get_account_summary()
 free_cash = account['cash_balance']
@@ -184,11 +193,11 @@ st.markdown("---")
 tab1, tab2, tab3 = st.tabs(["📊 Active Positions", "📑 Order Book", "💰 Ledger Summary"])
 
 with tab1:
-    st.subheader("Open Positions & Real-Time P&L")
+    st.subheader("Open Positions, SL/TP & Real-Time P&L")
     if not positions_df.empty:
         st.dataframe(positions_df, use_container_width=True)
         
-        st.markdown("### ❌ Exit / Square Off Position")
+        st.markdown("### ❌ Manual Exit / Square Off Position")
         col_sym, col_prod, col_btn = st.columns([2, 2, 1])
         with col_sym:
             so_symbol = st.selectbox("Select Position Symbol", positions_df['symbol'].tolist(), key="so_sym")
@@ -196,7 +205,7 @@ with tab1:
             so_product = st.selectbox("Select Product", positions_df[positions_df['symbol'] == so_symbol]['product'].tolist(), key="so_prod")
         with col_btn:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("Square Off Position", type="primary"):
+            if st.button("Square Off", type="primary"):
                 so_code = stock_mapping.get(so_symbol, "RELIANCE.NS")
                 exit_price = fetch_live_price(so_code)
                 if exit_price == 0.0:
