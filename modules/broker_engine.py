@@ -54,7 +54,7 @@ def place_order(symbol, txn_type, product, quantity, price, sl_price=0.0, tp_pri
     is_within_time = market_open <= current_time <= market_close
     
     if is_weekend or not is_within_time:
-        return False, f"Market is CLOSED! Trading hours are Mon–Fri, 9:15 AM to 3:30 PM IST. Current IST time: {now_ist.strftime('%A %H:%M')}"
+        return False, f"Market is CLOSED! Trading hours are Mon–Fri, 9:15 AM to 3:30 PM IST. Current IST: {now_ist.strftime('%A %H:%M')}"
 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -62,12 +62,11 @@ def place_order(symbol, txn_type, product, quantity, price, sl_price=0.0, tp_pri
     account = get_account_summary()
     cash = account['cash_balance']
     
+    # Equity Margin Rules: 5x for Intraday (MIS), 1x for Delivery (CNC)
     if "Intraday" in product:
         margin_multiplier = 0.2
-    elif "Delivery" in product:
-        margin_multiplier = 1.0
     else:
-        margin_multiplier = 0.25
+        margin_multiplier = 1.0
         
     required_margin = (price * quantity) * margin_multiplier
     
@@ -131,13 +130,7 @@ def square_off_position(symbol, product, current_price):
     
     qty, avg_price = pos
     
-    if "Intraday" in product:
-        margin_multiplier = 0.2
-    elif "Delivery" in product:
-        margin_multiplier = 1.0
-    else:
-        margin_multiplier = 0.25
-        
+    margin_multiplier = 0.2 if "Intraday" in product else 1.0
     released_margin = (avg_price * qty) * margin_multiplier
     realized_pnl = (current_price - avg_price) * qty
     
