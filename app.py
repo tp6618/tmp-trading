@@ -5,7 +5,7 @@ from modules.broker_engine import get_account_summary, place_order, get_orders, 
 
 # Page Configuration
 st.set_page_config(
-    page_title="TMP TRADING | Live Exchange Terminal",
+    page_title="TMP TRADING | Equity Terminal",
     page_icon="⚡",
     layout="wide"
 )
@@ -92,64 +92,30 @@ def fetch_live_price(ticker_symbol):
 
 # Sidebar Order Ticket Panel
 st.sidebar.title("⚡ TMP TRADING")
-st.sidebar.caption("Universal Exchange Terminal")
+st.sidebar.caption("Equity Paper Terminal")
 st.sidebar.markdown("---")
 
-market_segment = st.sidebar.selectbox("Market Segment", ["Equity (NSE & BSE All Stocks)", "Indices & F&O"])
+stock_mapping = get_exchange_stocks()
+available_products = ["Equity Delivery (CNC) - 1x", "Equity Intraday (MIS) - 5x"]
 
-if market_segment == "Equity (NSE & BSE All Stocks)":
-    stock_mapping = get_exchange_stocks()
-    available_products = ["Equity Delivery (CNC) - 1x", "Equity Intraday (MIS) - 5x"]
-    selected_option = st.sidebar.selectbox("🔍 Search & Select Stock", list(stock_mapping.keys()))
-    ticker_code = stock_mapping[selected_option]
-    
-    ltp = fetch_live_price(ticker_code)
-    if ltp == 0.00:
-        ltp = 1000.00
-    st.sidebar.markdown(f"### Live LTP: `₹{ltp:,.2f}`")
+selected_option = st.sidebar.selectbox("🔍 Search & Select Stock", list(stock_mapping.keys()))
+ticker_code = stock_mapping[selected_option]
 
-    txn_type = st.sidebar.radio("Action Type", ["BUY", "SELL"], horizontal=True)
-    product = st.sidebar.selectbox("Product Type", available_products)
-    qty = st.sidebar.number_input("Quantity / Lot Size", min_value=1, value=15)
+ltp = fetch_live_price(ticker_code)
+if ltp == 0.00:
+    ltp = 1000.00
 
-else:
-    st.sidebar.markdown("### 📊 F&O Quick Order")
-    fo_index = st.sidebar.selectbox("Select Index", ["NIFTY 50", "BANK NIFTY"])
-    index_ticker = "^NSEI" if fo_index == "NIFTY 50" else "^NSEBANK"
-    
-    spot_price = fetch_live_price(index_ticker)
-    if spot_price == 0.0:
-        spot_price = 24000.0 if fo_index == "NIFTY 50" else 51000.0
-        
-    st.sidebar.markdown(f"**Spot LTP:** `₹{spot_price:,.2f}`")
-    
-    # Generate dynamic strike contracts list for selection
-    strike_step = 50 if fo_index == "NIFTY 50" else 100
-    atm_strike = round(spot_price / strike_step) * strike_step
-    contract_list = []
-    for i in range(-4, 5):
-        stk = atm_strike + (i * strike_step)
-        contract_list.append(f"{fo_index} {stk} CE")
-        contract_list.append(f"{fo_index} {stk} PE")
-        
-    selected_option = st.sidebar.selectbox("Select Contract", contract_list)
-    ltp = st.sidebar.number_input("Option Premium (LTP)", min_value=0.05, value=150.0, step=0.5)
-    
-    txn_type = st.sidebar.radio("Action Type", ["BUY", "SELL"], horizontal=True)
-    product = st.sidebar.selectbox("Product Type", ["F&O Intraday (MIS)", "F&O Carry Forward (NRML)"])
-    qty = st.sidebar.number_input("Lot Size (Qty)", min_value=1, value=25 if fo_index == "NIFTY 50" else 15)
+st.sidebar.markdown(f"### Live LTP: `₹{ltp:,.2f}`")
+
+txn_type = st.sidebar.radio("Action Type", ["BUY", "SELL"], horizontal=True)
+product = st.sidebar.selectbox("Product Type", available_products)
+qty = st.sidebar.number_input("Quantity", min_value=1, value=15)
 
 st.sidebar.markdown("#### 🛡️ Risk Management (SL / TP)")
 sl_price = st.sidebar.number_input("Stop Loss (SL) Price", min_value=0.0, value=0.0, step=0.5)
 tp_price = st.sidebar.number_input("Take Profit (TP) Price", min_value=0.0, value=0.0, step=0.5)
 
-if "Intraday" in product:
-    margin_mult = 0.2
-elif "Delivery" in product:
-    margin_mult = 1.0
-else:
-    margin_mult = 0.25
-
+margin_mult = 0.2 if "Intraday" in product else 1.0
 est_required = (ltp * qty) * margin_mult
 st.sidebar.caption(f"Estimated Margin Needed: **₹{est_required:,.2f}**")
 
@@ -168,11 +134,11 @@ if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Universal paper trading environment with Real-Time Option Chain, SL/TP controls, and background streaming.")
+st.markdown("Professional Equity paper trading environment with live prices, strict market hours, and real-time background streaming.")
 
 @st.fragment(run_every=2)
 def live_dashboard_fragment():
-    auto_exit_msgs = check_auto_exits(fetch_live_price, stock_mapping if market_segment == "Equity (NSE & BSE All Stocks)" else {"NIFTY 50 Index": "^NSEI", "BANK NIFTY Index": "^NSEBANK"})
+    auto_exit_msgs = check_auto_exits(fetch_live_price, stock_mapping)
     for msg in auto_exit_msgs:
         st.warning(msg)
 
@@ -190,7 +156,7 @@ def live_dashboard_fragment():
         
         for idx, row in positions_df.iterrows():
             sym_name = row['symbol']
-            sym_code = stock_mapping.get(sym_name, "^NSEI") if 'stock_mapping' in locals() else "^NSEI"
+            sym_code = stock_mapping.get(sym_name, "RELIANCE.NS")
                 
             current_ltp = fetch_live_price(sym_code)
             if current_ltp == 0.0:
@@ -220,7 +186,7 @@ def live_dashboard_fragment():
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Active Positions", "📈 Real-Time Option Chain", "📑 Order Book", "💰 Ledger Summary"])
+    tab1, tab2, tab3 = st.tabs(["📊 Active Positions", "📑 Order Book", "💰 Ledger Summary"])
 
     with tab1:
         st.subheader("Open Positions, SL/TP & Real-Time P&L")
@@ -251,7 +217,7 @@ def live_dashboard_fragment():
 
             st.markdown("---")
             if st.button("❌ Square Off Position", type="primary"):
-                so_code = "^NSEI"
+                so_code = stock_mapping.get(mod_symbol, "RELIANCE.NS")
                 exit_price = fetch_live_price(so_code)
                 if exit_price == 0.0:
                     exit_price = 1000.0
@@ -266,82 +232,6 @@ def live_dashboard_fragment():
             st.info("No open positions currently active.")
 
     with tab2:
-        st.subheader("📈 Real-Time Option Chain (Calls & Puts - Buy / Sell)")
-        oc_index = st.selectbox("Select Underlying Index", ["NIFTY 50", "BANK NIFTY"], key="oc_idx")
-        oc_ticker = "^NSEI" if oc_index == "NIFTY 50" else "^NSEBANK"
-        spot = fetch_live_price(oc_ticker)
-        if spot == 0.0:
-            spot = 24000.0 if oc_index == "NIFTY 50" else 51000.0
-            
-        st.info(f"Live Spot Price for **{oc_index}**: **₹{spot:,.2f}** (Updates automatically every 2s)")
-        
-        strike_step = 50 if oc_index == "NIFTY 50" else 100
-        atm_strike = round(spot / strike_step) * strike_step
-        lot_size = 25 if oc_index == "NIFTY 50" else 15
-        
-        st.markdown("---")
-        
-        h1, h2, h3, h4, h5 = st.columns([2, 2, 2, 2, 2])
-        h1.markdown("**CALL ACTIONS (CE)**")
-        h2.markdown("**CALL LTP**")
-        h3.markdown("<h4 style='text-align: center;'>STRIKE</h4>", unsafe_allow_html=True)
-        h4.markdown("**PUT LTP**")
-        h5.markdown("**PUT ACTIONS (PE)**")
-        st.markdown("<hr style='margin: 0px 0px 10px 0px;'>", unsafe_allow_html=True)
-        
-        for i in range(-4, 5):
-            strike = atm_strike + (i * strike_step)
-            call_ltp = max(5.0, round((spot - strike) * 0.5 + 150 - (abs(i) * 15), 2)) if strike <= spot else max(5.0, round(150 - (i * 20), 2))
-            put_ltp = max(5.0, round((strike - spot) * 0.5 + 150 + (abs(i) * 15), 2)) if strike >= spot else max(5.0, round(150 + (i * 20), 2))
-            
-            c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 2])
-            
-            ce_symbol = f"{oc_index} {strike} CE"
-            pe_symbol = f"{oc_index} {strike} PE"
-            
-            with c1:
-                b_ce, s_ce = st.columns(2)
-                with b_ce:
-                    if st.button("B CE", key=f"b_ce_{strike}", help=f"Buy {ce_symbol}"):
-                        success, msg = place_order(ce_symbol, "BUY", "F&O Intraday (MIS)", lot_size, call_ltp)
-                        if success:
-                            st.success(f"Bought {ce_symbol}")
-                        else:
-                            st.error(msg)
-                with s_ce:
-                    if st.button("S CE", key=f"s_ce_{strike}", help=f"Sell {ce_symbol}"):
-                        success, msg = place_order(ce_symbol, "SELL", "F&O Intraday (MIS)", lot_size, call_ltp)
-                        if success:
-                            st.success(f"Sold {ce_symbol}")
-                        else:
-                            st.error(msg)
-            with c2:
-                st.markdown(f"₹{call_ltp}")
-            with c3:
-                is_atm = " 🎯" if strike == atm_strike else ""
-                st.markdown(f"<h4 style='text-align: center; color: #ff4b4b;'>{strike}{is_atm}</h4>", unsafe_allow_html=True)
-            with c4:
-                st.markdown(f"₹{put_ltp}")
-            with c5:
-                b_pe, s_pe = st.columns(2)
-                with b_pe:
-                    if st.button("B PE", key=f"b_pe_{strike}", help=f"Buy {pe_symbol}"):
-                        success, msg = place_order(pe_symbol, "BUY", "F&O Intraday (MIS)", lot_size, put_ltp)
-                        if success:
-                            st.success(f"Bought {pe_symbol}")
-                        else:
-                            st.error(msg)
-                with s_pe:
-                    if st.button("S PE", key=f"s_pe_{strike}", help=f"Sell {pe_symbol}"):
-                        success, msg = place_order(pe_symbol, "SELL", "F&O Intraday (MIS)", lot_size, put_ltp)
-                        if success:
-                            st.success(f"Sold {pe_symbol}")
-                        else:
-                            st.error(msg)
-                        
-            st.markdown("<hr style='margin: 4px 0px; border-color: #1e222d;'>", unsafe_allow_html=True)
-
-    with tab3:
         st.subheader("Complete Order Book History")
         orders_df = get_orders()
         if not orders_df.empty:
@@ -349,7 +239,7 @@ def live_dashboard_fragment():
         else:
             st.info("No orders placed yet.")
 
-    with tab4:
+    with tab3:
         st.subheader("Ledger Details")
         st.json({
             "Broker Name": "TMP TRADING",
