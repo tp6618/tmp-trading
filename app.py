@@ -126,10 +126,12 @@ turnover = execution_price * qty
 
 est_brokerage = min(20.0, turnover * 0.0003)
 est_stt = turnover * 0.001 if "Delivery" in product else (turnover * 0.00025 if txn_type == "SELL" else 0.0)
-est_total_charges = round(est_brokerage + est_stt + (turnover * 0.00005), 2)
+est_regulatory = round(est_brokerage + est_stt + (turnover * 0.00005), 2)
+est_platform_fee = 5.00
+est_total_fees = est_regulatory + est_platform_fee
 
-est_required = (turnover * margin_mult) + (est_total_charges if txn_type == "BUY" else 0.0)
-st.sidebar.caption(f"Estimated Margin: **₹{est_required - est_total_charges:,.2f}** | Est. Charges: **₹{est_total_charges:,.2f}**")
+est_required = (turnover * margin_mult) + (est_total_fees if txn_type == "BUY" else 0.0)
+st.sidebar.caption(f"Margin: **₹{est_required - est_total_fees:,.2f}** | Reg. Charges: **₹{est_regulatory:,.2f}** | Platform Fee: **₹{est_platform_fee:,.2f}**")
 
 if st.sidebar.button("🚀 Execute Order", type="primary", use_container_width=True):
     success, msg = place_order(selected_option, txn_type, product, qty, execution_price, sl_price, tp_price)
@@ -146,7 +148,7 @@ if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Professional Equity paper trading environment with Manual/LTP pricing and standard regulatory charges.")
+st.markdown("Professional Equity paper trading environment with regulatory taxes and platform infrastructure fees.")
 
 @st.fragment(run_every=2)
 def live_dashboard_fragment():
@@ -158,6 +160,7 @@ def live_dashboard_fragment():
     free_cash = account['cash_balance']
     utilized = account['utilized_margin']
     total_charges = account['total_charges_paid']
+    total_platform = account['total_platform_fees']
 
     positions_df = get_positions()
     total_unrealized_pnl = 0.0
@@ -245,7 +248,7 @@ def live_dashboard_fragment():
             st.info("No open positions currently active.")
 
     with tab2:
-        st.subheader("Complete Order Book History & Charges")
+        st.subheader("Complete Order Book History & Fees")
         orders_df = get_orders()
         if not orders_df.empty:
             st.dataframe(orders_df, use_container_width=True)
@@ -258,7 +261,8 @@ def live_dashboard_fragment():
             "Broker Name": "TMP TRADING",
             "Available Cash Balance": f"₹{free_cash:,.2f}",
             "Blocked Exposure Margin": f"₹{utilized:,.2f}",
-            "Total Brokerage & Taxes Paid": f"₹{total_charges:,.2f}"
+            "Total Regulatory Taxes Paid": f"₹{total_charges:,.2f}",
+            "Total Platform Fees Paid": f"₹{total_platform:,.2f}"
         })
 
 live_dashboard_fragment()
