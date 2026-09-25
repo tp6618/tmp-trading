@@ -45,6 +45,23 @@ def get_account_summary():
     return {"cash_balance": 1000000.0, "utilized_margin": 0.0}
 
 def place_order(symbol, txn_type, product, quantity, price):
+    # Enforce NSE/BSE Market Hours Check (Mon-Fri, 9:15 AM to 3:30 PM IST)
+    ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    now_ist = datetime.datetime.now(ist_offset)
+    
+    current_weekday = now_ist.weekday()  # 0=Mon, 4=Fri, 5=Sat, 6=Sun
+    current_time = now_ist.time()
+    
+    market_open = datetime.time(9, 15)
+    market_close = datetime.time(15, 30)
+    
+    is_weekend = current_weekday >= 5
+    is_within_time = market_open <= current_time <= market_close
+    
+    # Uncomment the block below if you want to strictly block orders outside market hours
+    # if is_weekend or not is_within_time:
+    #     return False, f"Market is CLOSED! Trading hours are Mon–Fri, 9:15 AM to 3:30 PM IST. Current IST: {now_ist.strftime('%A %H:%M')}"
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -71,7 +88,7 @@ def place_order(symbol, txn_type, product, quantity, price):
     cursor.execute("UPDATE account SET cash_balance = ?, utilized_margin = ? WHERE id = 1", (new_cash, new_utilized))
     
     order_id = "TMP" + str(datetime.datetime.now().strftime("%H%M%S%f"))[:10]
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = now_ist.strftime("%Y-%m-%d %H:%M:%S")
     
     cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                    (order_id, timestamp, symbol, txn_type, product, quantity, price, "COMPLETE"))
