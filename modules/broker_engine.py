@@ -17,7 +17,6 @@ def init_db():
                       (order_id TEXT, timestamp TEXT, symbol TEXT, txn_type TEXT, 
                        product TEXT, quantity INTEGER, price REAL, status TEXT)''')
     
-    # Positions table with Stop Loss (sl) and Take Profit (tp) columns
     cursor.execute('''CREATE TABLE IF NOT EXISTS positions 
                       (symbol TEXT, product TEXT, quantity INTEGER, avg_price REAL, sl_price REAL, tp_price REAL)''')
     
@@ -41,9 +40,22 @@ def get_account_summary():
     return {"cash_balance": 1000000.0, "utilized_margin": 0.0}
 
 def place_order(symbol, txn_type, product, quantity, price, sl_price=0.0, tp_price=0.0):
+    # Strict Market Hours Check (Mon-Fri, 9:15 AM to 3:30 PM IST)
     ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
     now_ist = datetime.datetime.now(ist_offset)
     
+    current_weekday = now_ist.weekday()  # 0=Mon, 4=Fri, 5=Sat, 6=Sun
+    current_time = now_ist.time()
+    
+    market_open = datetime.time(9, 15)
+    market_close = datetime.time(15, 30)
+    
+    is_weekend = current_weekday >= 5
+    is_within_time = market_open <= current_time <= market_close
+    
+    if is_weekend or not is_within_time:
+        return False, f"Market is CLOSED! Trading hours are Mon–Fri, 9:15 AM to 3:30 PM IST. Current IST time: {now_ist.strftime('%A %H:%M')}"
+
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
@@ -89,7 +101,7 @@ def place_order(symbol, txn_type, product, quantity, price, sl_price=0.0, tp_pri
             if new_qty <= 0:
                 cursor.execute("DELETE FROM positions WHERE symbol = ? AND product = ?", (symbol, product))
             else:
-                cursor.execute("UPDATE positions SET quantity = ? WHERE symbol = ? AND product = ?", 
+                cursor.execute("UPDATE positions SET quantity = ?, avg_price = ? WHERE symbol = ? AND product = ?", 
                                (new_qty, existing_avg, symbol, product))
     else:
         if txn_type == "BUY":
@@ -98,6 +110,14 @@ def place_order(symbol, txn_type, product, quantity, price, sl_price=0.0, tp_pri
     conn.commit()
     conn.close()
     return True, f"Order {order_id} executed successfully!"
+
+def update_sl_tp(symbol, product, new_sl, new_tp):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE positions SET sl_price = ?, tp_price = ? WHERE symbol = ? AND product = ?", (new_sl, new_tp, symbol, product))
+    conn.commit()
+    conn.close()
+    return True, f"Successfully updated SL/TP for {symbol}!"
 
 def square_off_position(symbol, product, current_price):
     conn = sqlite3.connect(DB_PATH)
@@ -133,7 +153,6 @@ def square_off_position(symbol, product, current_price):
     return True, f"Successfully squared off {symbol}. Realized P&L: ₹{realized_pnl:,.2f}"
 
 def check_auto_exits(get_live_price_func, stock_mapping):
-    """Checks open positions and automatically exits if SL or TP is hit."""
     positions = get_positions()
     if positions.empty:
         return []
@@ -142,7 +161,6 @@ def check_auto_exits(get_live_price_func, stock_mapping):
     for idx, row in positions.iterrows():
         symbol = row['symbol']
         product = row['product']
-        avg_price = row['avg_price']
         sl = row['sl_price']
         tp = row['tp_price']
         
