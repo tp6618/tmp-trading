@@ -95,7 +95,7 @@ st.sidebar.title("⚡ TMP TRADING")
 st.sidebar.caption("Universal Exchange Terminal")
 st.sidebar.markdown("---")
 
-market_segment = st.sidebar.selectbox("Market Segment", ["Equity (NSE & BSE All Stocks)", "Futures & Options (F&O)"])
+market_segment = st.sidebar.selectbox("Market Segment", ["Equity (NSE & BSE All Stocks)", "Indices & F&O"])
 
 if market_segment == "Equity (NSE & BSE All Stocks)":
     stock_mapping = get_exchange_stocks()
@@ -159,7 +159,7 @@ if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Universal paper trading environment with Interactive Option Chain, SL/TP controls, and real-time streaming.")
+st.markdown("Universal paper trading environment with Real-Time Option Chain, SL/TP controls, and background streaming.")
 
 @st.fragment(run_every=2)
 def live_dashboard_fragment():
@@ -211,7 +211,7 @@ def live_dashboard_fragment():
 
     st.markdown("---")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Active Positions", "📈 Interactive Option Chain", "📑 Order Book", "💰 Ledger Summary"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Active Positions", "📈 Real-Time Option Chain", "📑 Order Book", "💰 Ledger Summary"])
 
     with tab1:
         st.subheader("Open Positions, SL/TP & Real-Time P&L")
@@ -257,22 +257,31 @@ def live_dashboard_fragment():
             st.info("No open positions currently active.")
 
     with tab2:
-        st.subheader("📈 Live Interactive Option Chain (CE & PE)")
+        st.subheader("📈 Real-Time Option Chain (Calls & Puts - Buy / Sell)")
         oc_index = st.selectbox("Select Underlying Index", ["NIFTY 50", "BANK NIFTY"], key="oc_idx")
         oc_ticker = "^NSEI" if oc_index == "NIFTY 50" else "^NSEBANK"
         spot = fetch_live_price(oc_ticker)
         if spot == 0.0:
             spot = 24000.0 if oc_index == "NIFTY 50" else 51000.0
             
-        st.info(f"Live Spot Price for **{oc_index}**: **₹{spot:,.2f}**")
+        st.info(f"Live Spot Price for **{oc_index}**: **₹{spot:,.2f}** (Updates automatically every 2s)")
         
         strike_step = 50 if oc_index == "NIFTY 50" else 100
         atm_strike = round(spot / strike_step) * strike_step
+        lot_size = 25 if oc_index == "NIFTY 50" else 15
         
         st.markdown("---")
-        st.write("### Strike Chain Grid (Click buttons to execute trades)")
         
-        # Display option chain row by row with Buy/Sell action buttons
+        # Header Row for Option Chain
+        h1, h2, h3, h4, h5 = st.columns([2, 2, 2, 2, 2])
+        h1.markdown("**CALL ACTIONS (CE)**")
+        h2.markdown("**CALL LTP**")
+        h3.markdown("<h4 style='text-align: center;'>STRIKE</h4>", unsafe_allow_html=True)
+        h4.markdown("**PUT LTP**")
+        h5.markdown("**PUT ACTIONS (PE)**")
+        st.markdown("<hr style='margin: 0px 0px 10px 0px;'>", unsafe_allow_html=True)
+        
+        # Dynamic Strike Rows with Buy and Sell Buttons
         for i in range(-4, 5):
             strike = atm_strike + (i * strike_step)
             call_ltp = max(5.0, round((spot - strike) * 0.5 + 150 - (abs(i) * 15), 2)) if strike <= spot else max(5.0, round(150 - (i * 20), 2))
@@ -282,30 +291,36 @@ def live_dashboard_fragment():
             
             ce_symbol = f"{oc_index} {strike} CE"
             pe_symbol = f"{oc_index} {strike} PE"
-            lot_size = 25 if oc_index == "NIFTY 50" else 15
             
             with c1:
-                if st.button(f"BUY CE @ ₹{call_ltp}", key=f"buy_ce_{strike}"):
-                    success, msg = place_order(ce_symbol, "BUY", "F&O Intraday (MIS)", lot_size, call_ltp)
-                    if success:
-                        st.success(f"Bought {ce_symbol} successfully!")
-                    else:
-                        st.error(msg)
+                b_ce, s_ce = st.columns(2)
+                with b_ce:
+                    if st.button("B CE", key=f"b_ce_{strike}", help=f"Buy {ce_symbol}"):
+                        place_order(ce_symbol, "BUY", "F&O Intraday (MIS)", lot_size, call_ltp)
+                        st.success(f"Bought {ce_symbol}")
+                with s_ce:
+                    if st.button("S CE", key=f"s_ce_{strike}", help=f"Sell {ce_symbol}"):
+                        place_order(ce_symbol, "SELL", "F&O Intraday (MIS)", lot_size, call_ltp)
+                        st.success(f"Sold {ce_symbol}")
             with c2:
-                st.markdown(f"**CE LTP:** ₹{call_ltp}")
+                st.markdown(f"₹{call_ltp}")
             with c3:
-                is_atm = " 🎯 [ATM]" if strike == atm_strike else ""
+                is_atm = " 🎯" if strike == atm_strike else ""
                 st.markdown(f"<h4 style='text-align: center; color: #ff4b4b;'>{strike}{is_atm}</h4>", unsafe_allow_html=True)
             with c4:
-                st.markdown(f"**PE LTP:** ₹{put_ltp}")
+                st.markdown(f"₹{put_ltp}")
             with c5:
-                if st.button(f"BUY PE @ ₹{put_ltp}", key=f"buy_pe_{strike}"):
-                    success, msg = place_order(pe_symbol, "BUY", "F&O Intraday (MIS)", lot_size, put_ltp)
-                    if success:
-                        st.success(f"Bought {pe_symbol} successfully!")
-                    else:
-                        st.error(msg)
-            st.markdown("<hr style='margin: 5px 0px; border-color: #2d3748;'>", unsafe_allow_html=True)
+                b_pe, s_pe = st.columns(2)
+                with b_pe:
+                    if st.button("B PE", key=f"b_pe_{strike}", help=f"Buy {pe_symbol}"):
+                        place_order(pe_symbol, "BUY", "F&O Intraday (MIS)", lot_size, put_ltp)
+                        st.success(f"Bought {pe_symbol}")
+                with s_pe:
+                    if st.button("S_PE", key=f"s_pe_{strike}", help=f"Sell {pe_symbol}"):
+                        place_order(pe_symbol, "SELL", "F&O Intraday (MIS)", lot_size, put_ltp)
+                        st.success(f"Sold {pe_symbol}")
+                        
+            st.markdown("<hr style='margin: 4px 0px; border-color: #1e222d;'>", unsafe_allow_html=True)
 
     with tab3:
         st.subheader("Complete Order Book History")
