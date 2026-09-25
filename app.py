@@ -127,8 +127,8 @@ turnover = execution_price * qty
 est_brokerage = min(20.0, turnover * 0.0003)
 est_stt = turnover * 0.001 if "Delivery" in product else (turnover * 0.00025 if txn_type == "SELL" else 0.0)
 est_regulatory = round(est_brokerage + est_stt + (turnover * 0.00005), 2)
-est_platform_fee = 5.00
-est_total_fees = est_regulatory + est_platform_fee
+est_platform_fee = max(10.00, turnover * 0.00005)
+est_total_fees = round(est_regulatory + est_platform_fee, 2)
 
 est_required = (turnover * margin_mult) + (est_total_fees if txn_type == "BUY" else 0.0)
 st.sidebar.caption(f"Margin: **₹{est_required - est_total_fees:,.2f}** | Reg. Charges: **₹{est_regulatory:,.2f}** | Platform Fee: **₹{est_platform_fee:,.2f}**")
@@ -148,7 +148,7 @@ if st.sidebar.button("⚠️ Reset Account (Capital ₹10L)", type="secondary"):
 
 # Main Dashboard Centered Header
 st.title("⚡ TMP TRADING Terminal")
-st.markdown("Professional Equity paper trading environment with regulatory taxes and platform infrastructure fees.")
+st.markdown("Professional Equity paper trading environment with dynamic platform fees and regulatory taxes.")
 
 @st.fragment(run_every=2)
 def live_dashboard_fragment():
