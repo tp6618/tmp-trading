@@ -11,18 +11,24 @@ def init_db():
     cursor = conn.cursor()
     
     cursor.execute('''CREATE TABLE IF NOT EXISTS account 
-                      (id INTEGER PRIMARY KEY, cash_balance REAL, utilized_margin REAL)''')
+                      (id INTEGER PRIMARY KEY, cash_balance REAL, utilized_margin REAL, total_charges_paid REAL)''')
     
     cursor.execute('''CREATE TABLE IF NOT EXISTS orders 
                       (order_id TEXT, timestamp TEXT, symbol TEXT, txn_type TEXT, 
-                       product TEXT, quantity INTEGER, price REAL, status TEXT)''')
+                       product TEXT, quantity INTEGER, price REAL, charges REAL, status TEXT)''')
     
     cursor.execute('''CREATE TABLE IF NOT EXISTS positions 
                       (symbol TEXT, product TEXT, quantity INTEGER, avg_price REAL, sl_price REAL, tp_price REAL)''')
     
     cursor.execute("SELECT COUNT(*) FROM account")
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO account (cash_balance, utilized_margin) VALUES (?, ?)", (1000000.0, 0.0))
+        cursor.execute("INSERT INTO account (cash_balance, utilized_margin, total_charges_paid) VALUES (?, ?, ?)", (1000000.0, 0.0, 0.0))
+    else:
+        # Check if total_charges_paid column exists for older DB versions
+        cursor.execute("PRAGMA table_info(account)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if "total_charges_paid" not in columns:
+            cursor.execute("ALTER TABLE account ADD COLUMN total_charges_paid REAL DEFAULT 0.0")
     
     conn.commit()
     conn.close()
@@ -32,12 +38,40 @@ init_db()
 def get_account_summary():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute("SELECT cash_balance, utilized_margin FROM account WHERE id = 1")
+    cursor.execute("SELECT cash_balance, utilized_margin, total_charges_paid FROM account WHERE id = 1")
     row = cursor.fetchone()
     conn.close()
     if row:
-        return {"cash_balance": row[0], "utilized_margin": row[1]}
-    return {"cash_balance": 1000000.0, "utilized_margin": 0.0}
+        return {"cash_balance": row[0], "utilized_margin": row[1], "total_charges_paid": row[2] if len(row) > 2 else 0.0}
+    return {"cash_balance": 1000000.0, "utilized_margin": 0.0, "total_charges_paid": 0.0}
+
+def calculate_standard_charges(turnover, txn_type, product):
+    """Calculates standard Indian stock market charges (Brokerage, STT, Exchange, GST, SEBI, Stamp Duty)."""
+    is_delivery = "Delivery" in product
+    
+    # 1. Brokerage: Flat ₹20 or flat percentage
+    brokerage = min(20.0, turnover * 0.0003)
+    
+    # 2. STT / CTT
+    if is_delivery:
+        stt = turnover * 0.001  # 0.1% on buy & sell for delivery
+    else:
+        stt = turnover * 0.00025 if txn_type == "SELL" else 0.0 # 0.025% on sell side for intraday
+        
+    # 3. Exchange Transaction Charges (~0.00325%)
+    exchange_txn = turnover * 0.0000325
+    
+    # 4. GST (18% on brokerage + exchange charges)
+    gst = (brokerage + exchange_txn) * 0.18
+    
+    # 5. SEBI Turnover Charges (₹10 per Crore -> 0.0001%)
+    sebi_charges = turnover * 0.000001
+    
+    # 6. Stamp Duty (0.015% for delivery buy, 0.003% for intraday buy)
+    stamp_duty = turnover * 0.00015 if (is_delivery and txn_type == "BUY") else (turnover * 0.00003 if txn_type == "BUY" else 0.0)
+    
+    total_charges = brokerage + stt + exchange_txn + gst + sebi_charges + stamp_duty
+    return round(total_charges, 2)
 
 def place_order(symbol, txn_type, product, quantity, price, sl_price=0.0, tp_price=0.0):
     ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
@@ -61,27 +95,28 @@ def place_order(symbol, txn_type, product, quantity, price, sl_price=0.0, tp_pri
     account = get_account_summary()
     cash = account['cash_balance']
     
-    if "Intraday" in product:
-        margin_multiplier = 0.2
-    else:
-        margin_multiplier = 1.0
-        
-    required_margin = (price * quantity) * margin_multiplier
+    margin_multiplier = 0.2 if "Intraday" in product else 1.0
+    turnover = price * quantity
+    charges = calculate_standard_charges(turnover, txn_type, product)
+    
+    required_margin = (turnover * margin_multiplier) + (charges if txn_type == "BUY" else 0.0)
     
     if txn_type == "BUY" and cash < required_margin:
         conn.close()
-        return False, f"Insufficient funds! Required margin: ₹{required_margin:,.2f}"
+        return False, f"Insufficient funds! Required margin + charges: ₹{required_margin:,.2f}"
     
-    new_cash = cash - required_margin if txn_type == "BUY" else cash
-    new_utilized = account['utilized_margin'] + required_margin
+    new_cash = cash - required_margin if txn_type == "BUY" else cash - charges
+    new_utilized = account['utilized_margin'] + (turnover * margin_multiplier) if txn_type == "BUY" else account['utilized_margin']
+    new_charges_total = account['total_charges_paid'] + charges
     
-    cursor.execute("UPDATE account SET cash_balance = ?, utilized_margin = ? WHERE id = 1", (new_cash, new_utilized))
+    cursor.execute("UPDATE account SET cash_balance = ?, utilized_margin = ?, total_charges_paid = ? WHERE id = 1", 
+                   (new_cash, new_utilized, new_charges_total))
     
     order_id = "TMP" + str(datetime.datetime.now().strftime("%H%M%S%f"))[:10]
     timestamp = now_ist.strftime("%Y-%m-%d %H:%M:%S")
     
-    cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                   (order_id, timestamp, symbol, txn_type, product, quantity, price, "COMPLETE"))
+    cursor.execute("INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                   (order_id, timestamp, symbol, txn_type, product, quantity, price, charges, "COMPLETE"))
     
     cursor.execute("SELECT quantity, avg_price FROM positions WHERE symbol = ? AND product = ?", (symbol, product))
     pos = cursor.fetchone()
@@ -106,7 +141,7 @@ def place_order(symbol, txn_type, product, quantity, price, sl_price=0.0, tp_pri
             
     conn.commit()
     conn.close()
-    return True, f"Order {order_id} executed successfully at ₹{price:,.2f}!"
+    return True, f"Order {order_id} executed successfully! Charges applied: ₹{charges:,.2f}"
 
 def update_sl_tp(symbol, product, new_sl, new_tp):
     conn = sqlite3.connect(DB_PATH)
@@ -127,21 +162,26 @@ def square_off_position(symbol, product, current_price):
         return False, "Position not found."
     
     qty, avg_price = pos
-    
     margin_multiplier = 0.2 if "Intraday" in product else 1.0
     released_margin = (avg_price * qty) * margin_multiplier
+    
+    exit_turnover = current_price * qty
+    exit_charges = calculate_standard_charges(exit_turnover, "SELL", product)
+    
     realized_pnl = (current_price - avg_price) * qty
     
     account = get_account_summary()
-    new_cash = account['cash_balance'] + released_margin + realized_pnl
+    new_cash = account['cash_balance'] + released_margin + realized_pnl - exit_charges
     new_utilized = max(0.0, account['utilized_margin'] - released_margin)
+    new_charges_total = account['total_charges_paid'] + exit_charges
     
-    cursor.execute("UPDATE account SET cash_balance = ?, utilized_margin = ? WHERE id = 1", (new_cash, new_utilized))
+    cursor.execute("UPDATE account SET cash_balance = ?, utilized_margin = ?, total_charges_paid = ? WHERE id = 1", 
+                   (new_cash, new_utilized, new_charges_total))
     cursor.execute("DELETE FROM positions WHERE symbol = ? AND product = ?", (symbol, product))
     
     conn.commit()
     conn.close()
-    return True, f"Successfully squared off {symbol}. Realized P&L: ₹{realized_pnl:,.2f}"
+    return True, f"Squared off {symbol}. Realized P&L: ₹{realized_pnl:,.2f} (Exit Charges: ₹{exit_charges:,.2f})"
 
 def check_auto_exits(get_live_price_func, stock_mapping):
     positions = get_positions()
