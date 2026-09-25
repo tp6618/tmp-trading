@@ -110,7 +110,6 @@ def square_off_position(symbol, product, current_price):
     
     qty, avg_price = pos
     
-    # Calculate margin released
     if "Intraday" in product:
         margin_multiplier = 0.2
     elif "Delivery" in product:
