@@ -50,7 +50,7 @@ def get_account_summary():
     return {"cash_balance": 1000000.0, "utilized_margin": 0.0, "total_charges_paid": 0.0, "total_platform_fees": 0.0}
 
 def calculate_standard_charges(turnover, txn_type, product):
-    """Calculates standard Indian stock market charges + Platform Fees (₹5 flat platform fee per execution)."""
+    """Calculates standard Indian stock market charges + Platform Fee (₹10 or 0.005% whichever is higher)."""
     is_delivery = "Delivery" in product
     
     # 1. Brokerage: Flat ₹20 or flat percentage
@@ -74,8 +74,9 @@ def calculate_standard_charges(turnover, txn_type, product):
     # 6. Stamp Duty
     stamp_duty = turnover * 0.00015 if (is_delivery and txn_type == "BUY") else (turnover * 0.00003 if txn_type == "BUY" else 0.0)
     
-    # 7. Platform Fee (Flat ₹5 per order execution for software infrastructure)
-    platform_fee = 5.00
+    # 7. Platform Fee: ₹10 or 0.005% of turnover, whichever is higher
+    calculated_pct_fee = turnover * 0.00005
+    platform_fee = max(10.00, calculated_pct_fee)
     
     regulatory_charges = brokerage + stt + exchange_txn + gst + sebi_charges + stamp_duty
     return round(regulatory_charges, 2), round(platform_fee, 2)
