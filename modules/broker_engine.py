@@ -3,7 +3,6 @@ import pandas as pd
 import os
 import datetime
 
-# Ensure persistent data directory exists
 os.makedirs("data", exist_ok=True)
 DB_PATH = "data/tmp_trading.sqlite"
 
@@ -11,22 +10,18 @@ def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     cursor = conn.cursor()
     
-    # Account Ledger Table
     cursor.execute('''CREATE TABLE IF NOT EXISTS account 
                       (id INTEGER PRIMARY KEY, cash_balance REAL, utilized_margin REAL)''')
     
-    # Order Book Table
     cursor.execute('''CREATE TABLE IF NOT EXISTS orders 
                       (order_id TEXT, timestamp TEXT, symbol TEXT, txn_type TEXT, 
                        product TEXT, quantity INTEGER, price REAL, status TEXT)''')
     
-    # Active Positions Table
     cursor.execute('''CREATE TABLE IF NOT EXISTS positions 
                       (symbol TEXT, product TEXT, quantity INTEGER, avg_price REAL)''')
     
     cursor.execute("SELECT COUNT(*) FROM account")
     if cursor.fetchone()[0] == 0:
-        # Starting paper capital: ₹10,00,000
         cursor.execute("INSERT INTO account (cash_balance, utilized_margin) VALUES (?, ?)", (1000000.0, 0.0))
     
     conn.commit()
@@ -45,36 +40,21 @@ def get_account_summary():
     return {"cash_balance": 1000000.0, "utilized_margin": 0.0}
 
 def place_order(symbol, txn_type, product, quantity, price):
-    # Enforce NSE/BSE Market Hours Check (Mon-Fri, 9:15 AM to 3:30 PM IST)
     ist_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
     now_ist = datetime.datetime.now(ist_offset)
     
-    current_weekday = now_ist.weekday()  # 0=Mon, 4=Fri, 5=Sat, 6=Sun
-    current_time = now_ist.time()
-    
-    market_open = datetime.time(9, 15)
-    market_close = datetime.time(15, 30)
-    
-    is_weekend = current_weekday >= 5
-    is_within_time = market_open <= current_time <= market_close
-    
-    # Uncomment the block below if you want to strictly block orders outside market hours
-    # if is_weekend or not is_within_time:
-    #     return False, f"Market is CLOSED! Trading hours are Mon–Fri, 9:15 AM to 3:30 PM IST. Current IST: {now_ist.strftime('%A %H:%M')}"
-
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     account = get_account_summary()
     cash = account['cash_balance']
     
-    # Segment-specific margin rules
     if "Intraday" in product:
-        margin_multiplier = 0.2   # 5x Leverage for Equity Intraday
+        margin_multiplier = 0.2
     elif "Delivery" in product:
-        margin_multiplier = 1.0   # 100% Full Value for Delivery (CNC)
-    else:  # F&O Options / Futures
-        margin_multiplier = 0.25  # Standard span/exposure approximation
+        margin_multiplier = 1.0
+    else:
+        margin_multiplier = 0.25
         
     required_margin = (price * quantity) * margin_multiplier
     
@@ -108,7 +88,7 @@ def place_order(symbol, txn_type, product, quantity, price):
             if new_qty <= 0:
                 cursor.execute("DELETE FROM positions WHERE symbol = ? AND product = ?", (symbol, product))
             else:
-                cursor.execute("UPDATE positions SET quantity = ? WHERE symbol = ? AND product = ?", 
+                cursor.execute("UPDATE positions SET quantity = ?, avg_price = ? WHERE symbol = ? AND product = ?", 
                                (new_qty, existing_avg, symbol, product))
     else:
         if txn_type == "BUY":
@@ -117,6 +97,46 @@ def place_order(symbol, txn_type, product, quantity, price):
     conn.commit()
     conn.close()
     return True, f"Order {order_id} executed successfully!"
+
+def square_off_position(symbol, product, current_price):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT quantity, avg_price FROM positions WHERE symbol = ? AND product = ?", (symbol, product))
+    pos = cursor.fetchone()
+    if not pos:
+        conn.close()
+        return False, "Position not found."
+    
+    qty, avg_price = pos
+    
+    # Calculate margin released
+    if "Intraday" in product:
+        margin_multiplier = 0.2
+    elif "Delivery" in product:
+        margin_multiplier = 1.0
+    else:
+        margin_multiplier = 0.25
+        
+    released_margin = (avg_price * qty) * margin_multiplier
+    realized_pnl = (current_price - avg_price) * qty
+    
+    account = get_account_summary()
+    new_cash = account['cash_balance'] + released_margin + realized_pnl
+    new_utilized = max(0.0, account['utilized_margin'] - released_margin)
+    
+    cursor.execute("UPDATE account SET cash_balance = ?, utilized_margin = ? WHERE id = 1", (new_cash, new_utilized))
+    cursor.execute("DELETE FROM positions WHERE symbol = ? AND product = ?", (symbol, product))
+    
+    conn.commit()
+    conn.close()
+    return True, f"Successfully squared off {symbol}. Realized P&L: ₹{realized_pnl:,.2f}"
+
+def reset_account():
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+    init_db()
+    return True
 
 def get_orders():
     conn = sqlite3.connect(DB_PATH)
